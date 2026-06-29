@@ -36,9 +36,11 @@ final class AppUIModelsTests: XCTestCase {
         )
         XCTAssertEqual(ready.statusTitle, "Ready")
         XCTAssertEqual(ready.statusTone, .success)
+        XCTAssertEqual(ready.readinessSummaryText, "Window readiness enabled · Active-use gate on")
         XCTAssertEqual(ready.readinessText, "Window readiness enabled")
         XCTAssertEqual(ready.fiveHourQuotaText, "Claude 0% left / Codex Unknown")
         XCTAssertEqual(ready.resetTimeText, "Claude 05:30 / Codex Unknown")
+        XCTAssertEqual(ready.providerStates.first { $0.tool == .claude }?.resetCountdownText, "Due now")
         XCTAssertEqual(ready.runNowTitle, "Send")
         XCTAssertTrue(ready.canRunNow)
 
@@ -246,12 +248,34 @@ final class AppUIModelsTests: XCTestCase {
             calendar: calendar
         )
         XCTAssertNotEqual(observedLog.statusTitle, "Last run failed")
+        XCTAssertEqual(observedLog.readinessSummaryText, "Window readiness enabled · Active-use gate on")
         XCTAssertEqual(observedLog.providerStatusText, "Reset observed")
         XCTAssertEqual(observedLog.fiveHourQuotaText, "Claude 78% left / Codex Unknown")
         XCTAssertEqual(observedLog.resetTimeText, "Claude 09:10 / Codex Unknown")
         XCTAssertEqual(observedLog.lastRunText, "Claude quota observed")
-        XCTAssertEqual(observedLog.providerStates.first { $0.tool == .claude }?.quotaText, "5h 22% used · 78% left")
-        XCTAssertEqual(observedLog.providerStates.first { $0.tool == .codex }?.quotaText, "5h quota unavailable")
+        let claudeCard = try XCTUnwrap(observedLog.providerStates.first { $0.tool == .claude })
+        let codexCard = try XCTUnwrap(observedLog.providerStates.first { $0.tool == .codex })
+        XCTAssertEqual(claudeCard.quotaText, "5h 22% used · 78% left")
+        XCTAssertEqual(claudeCard.usedPercent, 22)
+        XCTAssertEqual(claudeCard.remainingPercent, 78)
+        XCTAssertEqual(claudeCard.nextResetText, "06/29 09:10")
+        XCTAssertEqual(claudeCard.resetCountdownText, "9h 10m")
+        XCTAssertEqual(claudeCard.confidenceText, "Observed local quota")
+        XCTAssertEqual(claudeCard.sourceText, "Claude usage probe")
+        XCTAssertFalse(claudeCard.showsDiagnosticDetail)
+        XCTAssertTrue(claudeCard.detailText.localizedCaseInsensitiveContains("22% used"))
+        XCTAssertEqual(codexCard.quotaText, "5h quota unavailable")
+        XCTAssertNil(codexCard.usedPercent)
+        XCTAssertNil(codexCard.remainingPercent)
+        XCTAssertEqual(codexCard.nextResetText, "Unknown")
+        XCTAssertEqual(codexCard.resetCountdownText, "Unknown")
+        XCTAssertEqual(codexCard.confidenceText, "Unknown")
+        XCTAssertEqual(codexCard.sourceText, "Codex local app-server")
+        XCTAssertEqual(codexCard.diagnosticText, "Unknown · Codex local app-server")
+        XCTAssertTrue(codexCard.showsDiagnosticDetail)
+        XCTAssertTrue(codexCard.detailText.localizedCaseInsensitiveContains("unavailable"))
+        XCTAssertNotEqual(claudeCard.quotaText, codexCard.quotaText)
+        XCTAssertNotEqual(claudeCard.nextResetText, codexCard.nextResetText)
 
         let idle = QuotaWakeUIStateBuilder.makeSettingsState(
             settings: settings,
@@ -331,6 +355,8 @@ final class AppUIModelsTests: XCTestCase {
         XCTAssertEqual(unavailable.providerStatusText, "Reset observed")
         XCTAssertEqual(unavailable.lastRunText, "Codex quota unavailable")
         XCTAssertEqual(unavailable.providerStates.first { $0.tool == .codex }?.statusText, "Quota unavailable")
+        XCTAssertEqual(unavailable.providerStates.first { $0.tool == .codex }?.resetCountdownText, "Unknown")
+        XCTAssertEqual(unavailable.providerStates.first { $0.tool == .codex }?.showsDiagnosticDetail, true)
         XCTAssertTrue(unavailable.providerStates.first { $0.tool == .codex }?.detailText.localizedCaseInsensitiveContains("unavailable") == true)
 
         let observed = QuotaWakeUIStateBuilder.makeSettingsState(
@@ -342,7 +368,9 @@ final class AppUIModelsTests: XCTestCase {
             calendar: calendar
         )
         XCTAssertEqual(observed.providerStates.first { $0.tool == .codex }?.statusText, "Reset observed")
+        XCTAssertEqual(observed.providerStates.first { $0.tool == .codex }?.resetCountdownText, "40m")
         XCTAssertEqual(observed.providerStates.first { $0.tool == .codex }?.confidenceText, "Observed local quota")
+        XCTAssertEqual(observed.providerStates.first { $0.tool == .codex }?.showsDiagnosticDetail, false)
 
         let legacyData = legacySettingsFixture.data(using: .utf8)!
         let migrated = try JSONDecoder().decode(AppSettings.self, from: legacyData)

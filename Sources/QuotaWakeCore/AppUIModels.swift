@@ -39,17 +39,23 @@ public struct ProviderReadinessUIState: Equatable, Sendable {
     public let statusText: String
     public let statusTone: UIStatusTone
     public let quotaText: String
+    public let usedPercent: Double?
+    public let remainingPercent: Double?
     public let lastReadinessText: String
     public let nextResetText: String
+    public let resetCountdownText: String
     public let confidenceText: String
     public let sourceText: String
     public let detailText: String
+    public let diagnosticText: String
+    public let showsDiagnosticDetail: Bool
 }
 
 public struct PopoverUIState: Equatable, Sendable {
     public let statusTitle: String
     public let statusDetail: String
     public let statusTone: UIStatusTone
+    public let readinessSummaryText: String
     public let readinessText: String
     public let providerStatusText: String
     public let fiveHourQuotaText: String
@@ -136,6 +142,7 @@ public enum QuotaWakeUIStateBuilder {
             statusTitle: status.title,
             statusDetail: status.detail,
             statusTone: status.tone,
+            readinessSummaryText: popoverReadinessSummaryText(settings: settings),
             readinessText: readinessText(settings: settings),
             providerStatusText: providerStatusText(providerStates),
             fiveHourQuotaText: fiveHourQuotaText(settings: settings, quotaStates: quotaStates),
@@ -193,6 +200,7 @@ public enum QuotaWakeUIStateBuilder {
         var strings = [
             popover.statusTitle,
             popover.statusDetail,
+            popover.readinessSummaryText,
             popover.readinessText,
             popover.providerStatusText,
             popover.fiveHourQuotaText,
@@ -213,11 +221,33 @@ public enum QuotaWakeUIStateBuilder {
         ]
         strings += popover.toolStates.flatMap { [$0.displayName, $0.statusText, $0.pathText, $0.detailText] }
         strings += popover.providerStates.flatMap {
-            [$0.displayName, $0.statusText, $0.quotaText, $0.lastReadinessText, $0.nextResetText, $0.confidenceText, $0.sourceText, $0.detailText]
+            [
+                $0.displayName,
+                $0.statusText,
+                $0.quotaText,
+                $0.lastReadinessText,
+                $0.nextResetText,
+                $0.resetCountdownText,
+                $0.confidenceText,
+                $0.sourceText,
+                $0.detailText,
+                $0.diagnosticText
+            ]
         }
         strings += settings.toolStates.flatMap { [$0.displayName, $0.statusText, $0.pathText, $0.detailText] }
         strings += settings.providerStates.flatMap {
-            [$0.displayName, $0.statusText, $0.quotaText, $0.lastReadinessText, $0.nextResetText, $0.confidenceText, $0.sourceText, $0.detailText]
+            [
+                $0.displayName,
+                $0.statusText,
+                $0.quotaText,
+                $0.lastReadinessText,
+                $0.nextResetText,
+                $0.resetCountdownText,
+                $0.confidenceText,
+                $0.sourceText,
+                $0.detailText,
+                $0.diagnosticText
+            ]
         }
         strings += settings.logRows.flatMap { [$0.timeText, $0.toolText, $0.statusText, $0.durationText, $0.exitCodeText, $0.summaryText] }
         return strings
@@ -282,6 +312,10 @@ public enum QuotaWakeUIStateBuilder {
             return "Waiting for quota window signal"
         }
         return "Window readiness enabled"
+    }
+
+    private static func popoverReadinessSummaryText(settings: AppSettings) -> String {
+        "\(readinessText(settings: settings)) · \(activityText(settings.readiness))"
     }
 
     private static func enabledToolsText(settings: AppSettings) -> String {
@@ -350,6 +384,18 @@ public enum QuotaWakeUIStateBuilder {
         return "\(window) \(parts.joined(separator: " · "))"
     }
 
+    private static func providerQuotaPercents(_ state: QuotaWindowState) -> (used: Double?, remaining: Double?) {
+        var used = state.usedPercent.map(clampedPercent)
+        var remaining = state.remainingPercent.map(clampedPercent)
+        if used == nil, let remaining {
+            used = clampedPercent(100 - remaining)
+        }
+        if remaining == nil, let used {
+            remaining = clampedPercent(100 - used)
+        }
+        return (used, remaining)
+    }
+
     private static func quotaPercentText(_ state: QuotaWindowState) -> String? {
         if let remainingPercent = state.remainingPercent {
             return "\(percentText(remainingPercent)) left"
@@ -370,11 +416,40 @@ public enum QuotaWakeUIStateBuilder {
     }
 
     private static func percentText(_ value: Double) -> String {
-        let clamped = min(max(value, 0), 100)
+        let clamped = clampedPercent(value)
         if clamped.rounded() == clamped {
             return "\(Int(clamped))%"
         }
         return String(format: "%.1f%%", clamped)
+    }
+
+    private static func clampedPercent(_ value: Double) -> Double {
+        min(max(value, 0), 100)
+    }
+
+    private static func resetCountdownText(until resetAt: Date, now: Date) -> String {
+        let seconds = Int(ceil(resetAt.timeIntervalSince(now)))
+        guard seconds > 0 else {
+            return "Due now"
+        }
+
+        let days = seconds / 86_400
+        let hours = (seconds % 86_400) / 3_600
+        let minutes = (seconds % 3_600) / 60
+        if days > 0 {
+            return hours > 0 ? "\(days)d \(hours)h" : "\(days)d"
+        }
+        if hours > 0 {
+            return minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h"
+        }
+        if minutes > 0 {
+            return "\(minutes)m"
+        }
+        return "<1m"
+    }
+
+    private static func providerShowsDiagnostic(_ tone: UIStatusTone) -> Bool {
+        tone == .warning || tone == .error
     }
 
     private static func lastRunText(_ entry: RunLogEntry?) -> String {
@@ -439,11 +514,16 @@ public enum QuotaWakeUIStateBuilder {
                 statusText: "Disabled",
                 statusTone: .neutral,
                 quotaText: "Not used",
+                usedPercent: nil,
+                remainingPercent: nil,
                 lastReadinessText: lastRunText(latestLog),
                 nextResetText: "Not used",
+                resetCountdownText: "Not used",
                 confidenceText: "Blocked",
                 sourceText: "Tool settings",
-                detailText: "This provider is excluded from session readiness."
+                detailText: "This provider is excluded from session readiness.",
+                diagnosticText: "Blocked · Tool settings",
+                showsDiagnosticDetail: false
             )
         }
 
@@ -454,28 +534,42 @@ public enum QuotaWakeUIStateBuilder {
                 statusText: "Quota unknown",
                 statusTone: .warning,
                 quotaText: "5h quota unknown",
+                usedPercent: nil,
+                remainingPercent: nil,
                 lastReadinessText: lastRunText(latestLog),
                 nextResetText: "Unknown",
+                resetCountdownText: "Unknown",
                 confidenceText: confidenceText(.unknown),
                 sourceText: sourceText(.none),
-                detailText: "Observe from the last provider result before background sends."
+                detailText: "Observe from the last provider result before background sends.",
+                diagnosticText: "Unknown · None",
+                showsDiagnosticDetail: true
             )
         }
 
         let nextReset = quotaState.resetAt.map { dateTimeText($0, calendar: calendar) } ?? "Unknown"
+        let resetCountdown = quotaState.resetAt.map { resetCountdownText(until: $0, now: now) } ?? "Unknown"
         let detail = truncateMiddle(quotaState.summary, maxCharacters: 140)
         let (status, tone) = providerStatus(quotaState, now: now)
+        let (usedPercent, remainingPercent) = providerQuotaPercents(quotaState)
+        let confidence = confidenceText(quotaState.confidence)
+        let source = sourceText(quotaState.source)
         return ProviderReadinessUIState(
             tool: tool,
             displayName: displayName(tool),
             statusText: status,
             statusTone: tone,
             quotaText: providerQuotaText(quotaState),
+            usedPercent: usedPercent,
+            remainingPercent: remainingPercent,
             lastReadinessText: lastRunText(latestLog),
             nextResetText: nextReset,
-            confidenceText: confidenceText(quotaState.confidence),
-            sourceText: sourceText(quotaState.source),
-            detailText: detail.isEmpty ? classificationText(quotaState.classification) : detail
+            resetCountdownText: resetCountdown,
+            confidenceText: confidence,
+            sourceText: source,
+            detailText: detail.isEmpty ? classificationText(quotaState.classification) : detail,
+            diagnosticText: "\(confidence) · \(source)",
+            showsDiagnosticDetail: providerShowsDiagnostic(tone)
         )
     }
 
