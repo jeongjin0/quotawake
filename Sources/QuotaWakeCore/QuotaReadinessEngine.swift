@@ -1,0 +1,170 @@
+import Foundation
+
+public struct QuotaReadinessEngine: Equatable, Sendable {
+    public init() {}
+
+    public func evaluate(input: QuotaReadinessInput) -> QuotaReadinessDecision {
+        guard input.toolSettings.enabled else {
+            return .wait(QuotaReadinessWait(reason: .toolDisabled, nextCandidate: nil, source: .toolSettings))
+        }
+
+        switch candidate(from: input) {
+        case .blocked:
+            return .wait(QuotaReadinessWait(reason: .providerBlocked, nextCandidate: nil, source: .providerState))
+        case .unavailable:
+            return .wait(QuotaReadinessWait(reason: .quotaUnavailable, nextCandidate: nil, source: .providerState))
+        case .observeNeeded(let observation):
+            return .observeNeeded(observation)
+        case .candidate(let candidate):
+            return decision(for: candidate, input: input)
+        }
+    }
+
+    private func decision(
+        for candidate: QuotaReadinessCandidate,
+        input: QuotaReadinessInput
+    ) -> QuotaReadinessDecision {
+        guard candidate.event.resetAt <= input.now else {
+            return .wait(QuotaReadinessWait(
+                reason: .resetNotDue,
+                nextCandidate: candidate.event,
+                source: candidate.source
+            ))
+        }
+        if let activityWait = waitForActivity(input.activity, candidate: candidate.event, readiness: input.readiness) {
+            return .wait(activityWait)
+        }
+        guard !input.completedResetWindowEventIds.contains(candidate.event.eventId) else {
+            return .wait(QuotaReadinessWait(
+                reason: .duplicateResetWindow,
+                nextCandidate: candidate.event,
+                source: .idempotency
+            ))
+        }
+        if let cooldownUntil = cooldownUntil(input), input.now < cooldownUntil {
+            return .wait(QuotaReadinessWait(
+                reason: .cooldown(until: cooldownUntil),
+                nextCandidate: candidate.event,
+                source: .cooldown
+            ))
+        }
+        return .send(candidate.event)
+    }
+
+    private func candidate(from input: QuotaReadinessInput) -> QuotaReadinessCandidateResult {
+        guard let quotaWindow = input.quotaWindow else {
+            return estimatedCandidate(from: input)
+        }
+        guard quotaWindow.tool == input.tool else {
+            return .observeNeeded(QuotaReadinessObservation(tool: input.tool, reason: .invalidQuotaState))
+        }
+        if isProviderBlocked(quotaWindow) {
+            return .blocked
+        }
+        if quotaWindow.classification == .quotaUnavailable,
+           input.readiness.resetEstimationMode != .allowFiveHourEstimate {
+            return .unavailable
+        }
+        guard case let .limitReached(resetAt) = quotaWindow.classification,
+              let candidateResetAt = quotaWindow.resetAt ?? Optional(resetAt) else {
+            return estimatedCandidate(from: input)
+        }
+        guard quotaWindow.confidence != .unknown else {
+            return .observeNeeded(QuotaReadinessObservation(tool: input.tool, reason: .unknownStrictMode))
+        }
+        if quotaWindow.confidence == .estimatedFiveHour,
+           input.readiness.resetEstimationMode != .allowFiveHourEstimate {
+            return .observeNeeded(QuotaReadinessObservation(tool: input.tool, reason: .unknownStrictMode))
+        }
+        let event = QuotaResetWindowEvent(
+            eventId: QuotaResetWindowEvent.resetWindowId(tool: input.tool, resetAt: candidateResetAt),
+            tool: input.tool,
+            resetAt: candidateResetAt,
+            source: quotaWindow.source,
+            confidence: quotaWindow.confidence
+        )
+        let source: QuotaReadinessDecisionSource = quotaWindow.confidence == .estimatedFiveHour
+            ? .estimatedFiveHour
+            : .quotaWindow
+        return .candidate(QuotaReadinessCandidate(event: event, source: source))
+    }
+
+    private func estimatedCandidate(from input: QuotaReadinessInput) -> QuotaReadinessCandidateResult {
+        guard input.readiness.resetEstimationMode == .allowFiveHourEstimate else {
+            return .observeNeeded(QuotaReadinessObservation(tool: input.tool, reason: .unknownStrictMode))
+        }
+        guard let lastSuccessAt = input.lastSuccessAt else {
+            return .observeNeeded(QuotaReadinessObservation(tool: input.tool, reason: .missingLastSuccessForEstimate))
+        }
+        let state = QuotaWindowState.estimatedFiveHour(
+            tool: input.tool,
+            lastSuccessAt: lastSuccessAt,
+            observedAt: input.now
+        )
+        guard let resetAt = state.resetAt else {
+            return .observeNeeded(QuotaReadinessObservation(tool: input.tool, reason: .invalidQuotaState))
+        }
+        let event = QuotaResetWindowEvent(
+            eventId: QuotaResetWindowEvent.resetWindowId(tool: input.tool, resetAt: resetAt),
+            tool: input.tool,
+            resetAt: resetAt,
+            source: state.source,
+            confidence: state.confidence
+        )
+        return .candidate(QuotaReadinessCandidate(event: event, source: .estimatedFiveHour))
+    }
+
+    private func waitForActivity(
+        _ activity: ActivityGateResult,
+        candidate: QuotaResetWindowEvent,
+        readiness: WindowReadinessSettings
+    ) -> QuotaReadinessWait? {
+        switch activity {
+        case .active:
+            return nil
+        case .idle(let seconds):
+            guard readiness.activeOnly else {
+                return nil
+            }
+            return QuotaReadinessWait(reason: .idle(seconds: seconds), nextCandidate: candidate, source: .activityGate)
+        case .activityUnavailable:
+            guard readiness.activeOnly else {
+                return nil
+            }
+            return QuotaReadinessWait(reason: .activityUnavailable, nextCandidate: candidate, source: .activityGate)
+        case .suppressedPowerState(let reason):
+            return QuotaReadinessWait(
+                reason: .suppressedPowerState(reason),
+                nextCandidate: candidate,
+                source: .activityGate
+            )
+        }
+    }
+
+    private func isProviderBlocked(_ state: QuotaWindowState) -> Bool {
+        if state.confidence == .blocked {
+            return true
+        }
+        switch state.classification {
+        case .authRequired, .apiBillingEnvPresent, .usageLimitNoReset:
+            return true
+        case .sent, .limitReached, .quotaUnavailable, .unknownFailure:
+            return false
+        }
+    }
+
+    private func cooldownUntil(_ input: QuotaReadinessInput) -> Date? {
+        guard let lastSentAt = input.lastSentAt else {
+            return nil
+        }
+        return lastSentAt.addingTimeInterval(TimeInterval(input.readiness.minimumSendCooldownMinutes * 60))
+    }
+}
+
+private struct QuotaReadinessCandidate: Equatable, Sendable {
+    let event: QuotaResetWindowEvent; let source: QuotaReadinessDecisionSource
+}
+
+private enum QuotaReadinessCandidateResult: Equatable, Sendable {
+    case candidate(QuotaReadinessCandidate), blocked, unavailable, observeNeeded(QuotaReadinessObservation)
+}
