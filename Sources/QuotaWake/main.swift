@@ -490,7 +490,7 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
 
         let popover = NSPopover()
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 360, height: 500)
+        popover.contentSize = NSSize(width: 360, height: 580)
         popover.contentViewController = NSHostingController(
             rootView: QuotaWakePopoverView(
                 model: model,
@@ -667,8 +667,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
             case "missing-cli":
                 try UIQARenderer.render(
                     QuotaWakePopoverView(model: model, openSettings: {}, quit: {})
-                        .frame(width: 360, height: 500),
-                    size: NSSize(width: 360, height: 500),
+                        .frame(width: 360, height: 580),
+                    size: NSSize(width: 360, height: 580),
                     to: config.evidenceDirectory.appendingPathComponent("missing-cli.png")
                 )
             case "broken-codex":
@@ -687,8 +687,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
                 )
                 try UIQARenderer.render(
                     QuotaWakePopoverView(model: brokenModel, openSettings: {}, quit: {})
-                        .frame(width: 360, height: 500),
-                    size: NSSize(width: 360, height: 500),
+                        .frame(width: 360, height: 580),
+                    size: NSSize(width: 360, height: 580),
                     to: config.evidenceDirectory.appendingPathComponent("broken-codex.png")
                 )
                 brokenModel.selectedPane = .tools
@@ -766,8 +766,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
                 )
                 try UIQARenderer.render(
                     QuotaWakePopoverView(model: runModel, openSettings: {}, quit: {})
-                        .frame(width: 360, height: 500),
-                    size: NSSize(width: 360, height: 500),
+                        .frame(width: 360, height: 580),
+                    size: NSSize(width: 360, height: 580),
                     to: config.evidenceDirectory.appendingPathComponent("run-now.png")
                 )
             case "live-run-now":
@@ -787,8 +787,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
                 )
                 try UIQARenderer.render(
                     QuotaWakePopoverView(model: runModel, openSettings: {}, quit: {})
-                        .frame(width: 360, height: 500),
-                    size: NSSize(width: 360, height: 500),
+                        .frame(width: 360, height: 580),
+                    size: NSSize(width: 360, height: 580),
                     to: config.evidenceDirectory.appendingPathComponent("live-run-now.png")
                 )
             case "tool-toggle":
@@ -830,8 +830,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
                 )
                 try UIQARenderer.render(
                     QuotaWakePopoverView(model: readinessModel, openSettings: {}, quit: {})
-                        .frame(width: 360, height: 500),
-                    size: NSSize(width: 360, height: 500),
+                        .frame(width: 360, height: 580),
+                    size: NSSize(width: 360, height: 580),
                     to: config.evidenceDirectory.appendingPathComponent("popover.png")
                 )
                 readinessModel.selectedPane = .readiness
@@ -855,8 +855,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
             case "popover-settings":
                 try UIQARenderer.render(
                     QuotaWakePopoverView(model: model, openSettings: {}, quit: {})
-                        .frame(width: 360, height: 500),
-                    size: NSSize(width: 360, height: 500),
+                        .frame(width: 360, height: 580),
+                    size: NSSize(width: 360, height: 580),
                     to: config.evidenceDirectory.appendingPathComponent("popover.png")
                 )
                 for pane in SettingsPaneID.allCases {
@@ -1539,8 +1539,11 @@ enum QWTheme {
     static let windowBackground = Color(nsColor: .windowBackgroundColor)
     static let sidebarBackground = Color(nsColor: .underPageBackgroundColor)
     static let surface = Color(nsColor: .controlBackgroundColor)
+    static let glassSurface = Color(nsColor: .windowBackgroundColor).opacity(0.62)
+    static let glassPressed = Color(nsColor: .controlAccentColor).opacity(0.10)
     static let surfaceSubtle = Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
     static let border = Color(nsColor: .separatorColor)
+    static let glassBorder = Color(nsColor: .separatorColor).opacity(0.62)
     static let primaryText = Color.primary
     static let secondaryText = Color.secondary
     static let accent = Color.accentColor
@@ -1550,6 +1553,10 @@ enum QWTheme {
     static let warning = Color(nsColor: .systemOrange)
     static let error = Color(nsColor: .systemRed)
     static let info = Color(nsColor: .systemBlue)
+    static let claudeAccent = Color(nsColor: .systemOrange)
+    static let claudeWash = Color(nsColor: .systemOrange).opacity(0.12)
+    static let codexAccent = Color(nsColor: .systemBlue)
+    static let codexWash = Color(nsColor: .systemBlue).opacity(0.10)
 }
 
 enum QWSettingsTheme {
@@ -1634,25 +1641,6 @@ struct QWCommandButtonStyle: ButtonStyle {
             return configuration.isPressed ? QWSettingsTheme.controlPressed : QWSettingsTheme.control
         }
         return configuration.isPressed ? QWTheme.surfaceSubtle : QWTheme.surface
-    }
-}
-
-struct QWIconButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(isEnabled ? QWTheme.primaryText : QWTheme.secondaryText.opacity(0.65))
-            .frame(width: 32, height: 30)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(configuration.isPressed ? QWTheme.surfaceSubtle : QWTheme.surface)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(QWTheme.border, lineWidth: 1)
-            )
     }
 }
 
@@ -1761,150 +1749,6 @@ extension FirstRunStep {
             return "Test"
         case .complete:
             return "Done"
-        }
-    }
-}
-
-struct QuotaWakePopoverView: View {
-    @ObservedObject var model: QuotaWakeAppModel
-    let openSettings: () -> Void
-    let quit: () -> Void
-
-    var body: some View {
-        let state = model.popoverState
-
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Text("QuotaWake")
-                    .font(.system(size: 18, weight: .semibold))
-                Spacer()
-                StatusDot(tone: state.statusTone)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(state.statusTitle)
-                    .font(.system(size: 14, weight: .semibold))
-                Text(state.statusDetail)
-                    .font(.system(size: 12))
-                    .foregroundStyle(QWTheme.secondaryText)
-                    .lineLimit(2)
-            }
-
-            Divider()
-
-            StatusLine(label: "Window", value: state.readinessText, tone: .neutral)
-            StatusLine(label: "Provider", value: state.providerStatusText, tone: state.statusTone)
-            StatusLine(label: "5h quota", value: state.fiveHourQuotaText, tone: .neutral)
-            StatusLine(label: "Reset", value: state.resetTimeText, tone: .neutral)
-            StatusLine(label: "Confidence", value: state.confidenceText, tone: .neutral)
-            StatusLine(label: "Tools", value: state.enabledToolsText, tone: .neutral)
-            StatusLine(label: "Activity", value: state.activityText, tone: .neutral)
-            StatusLine(label: "Last", value: state.lastRunText, tone: state.statusTone)
-
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(state.providerStates, id: \.tool) { provider in
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 8) {
-                            StatusDot(tone: provider.statusTone)
-                            Text(provider.displayName)
-                                .font(.system(size: 12, weight: .semibold))
-                            Text(provider.statusText)
-                                .font(.system(size: 12))
-                                .foregroundStyle(QWTheme.secondaryText)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                            Spacer()
-                            Text(provider.confidenceText)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(QWTheme.secondaryText)
-                                .lineLimit(1)
-                        }
-                        HStack(spacing: 8) {
-                            Text(provider.quotaText)
-                                .font(.system(size: 11))
-                                .foregroundStyle(QWTheme.secondaryText)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Spacer()
-                            Text("Reset \(provider.nextResetText)")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(QWTheme.secondaryText)
-                                .lineLimit(1)
-                        }
-                    }
-                }
-            }
-            .padding(10)
-            .background(QWTheme.surface)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(QWTheme.border, lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-
-            if let message = model.statusMessage {
-                Text(message)
-                    .font(.system(size: 11))
-                    .foregroundStyle(QWTheme.secondaryText)
-                    .lineLimit(2)
-            }
-
-            Spacer(minLength: 0)
-
-            HStack(spacing: 8) {
-                Button {
-                    model.runNow()
-                } label: {
-                    Label(state.runNowTitle, systemImage: "paperplane")
-                }
-                .disabled(!state.canRunNow)
-                .keyboardShortcut(.return, modifiers: [])
-                .buttonStyle(QWCommandButtonStyle(prominent: true))
-
-                Button {
-                    model.observeLastResult()
-                } label: {
-                    Label("Observe", systemImage: "arrow.triangle.2.circlepath")
-                }
-                .buttonStyle(QWCommandButtonStyle())
-
-                Spacer()
-
-                Button {
-                    openSettings()
-                } label: {
-                    Image(systemName: "gearshape")
-                }
-                .buttonStyle(QWIconButtonStyle())
-                .help("Settings")
-                .accessibilityLabel("Settings")
-
-                Button {
-                    quit()
-                } label: {
-                    Image(systemName: "power")
-                }
-                .buttonStyle(QWIconButtonStyle())
-                .help("Quit")
-                .accessibilityLabel("Quit")
-            }
-        }
-        .padding(16)
-        .frame(width: 360, height: 500)
-        .background(QWTheme.windowBackground)
-        .foregroundStyle(QWTheme.primaryText)
-        .environment(\.colorScheme, .light)
-    }
-
-    private func tone(for tool: ToolUIState) -> UIStatusTone {
-        if !tool.enabled {
-            return .neutral
-        }
-        switch tool.status {
-        case .found:
-            return .success
-        case .missing, .manualPathInvalid, .nodeRuntimeMissing, .brokenExecutable:
-            return .warning
         }
     }
 }
@@ -2893,26 +2737,6 @@ struct SettingsRow: View {
                 .layoutPriority(1)
         }
         .foregroundStyle(QWSettingsTheme.primaryText)
-    }
-}
-
-struct StatusLine: View {
-    let label: String
-    let value: String
-    let tone: UIStatusTone
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(label)
-                .foregroundStyle(QWTheme.secondaryText)
-                .frame(width: 86, alignment: .leading)
-            Text(value)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .layoutPriority(1)
-            Spacer(minLength: 0)
-        }
-        .font(.system(size: 12))
     }
 }
 

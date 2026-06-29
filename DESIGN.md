@@ -12,6 +12,8 @@ QuotaWake feels like a quiet Mac utility: compact, trustworthy, and easy to scan
 | --- | --- | --- | --- | --- |
 | Surface/primary | `surfacePrimary` | system window background | system window background | Settings window base |
 | Surface/elevated | `surfaceElevated` | popover background | popover background | Menu bar popover, panels |
+| Surface/glass | `popoverGlassMaterial` | native popover/sidebar material | native popover/sidebar material | Translucent menu bar popover shell |
+| Surface/glass stroke | `popoverGlassStroke` | separator with reduced opacity | separator with reduced opacity | Glass edge, provider card outline |
 | Surface/secondary | `surfaceSecondary` | control background | control background | Group boxes, table rows |
 | Text/primary | `textPrimary` | primary label | primary label | Main labels, values |
 | Text/secondary | `textSecondary` | secondary label | secondary label | Metadata, helper values |
@@ -22,12 +24,18 @@ QuotaWake feels like a quiet Mac utility: compact, trustworthy, and easy to scan
 | Status/warning | `statusWarning` | system orange | system orange | Skipped/missing setup |
 | Status/error | `statusError` | system red | system red | Failed/error state |
 | Status/info | `statusInfo` | system blue | system blue | Checking/update info |
+| Provider/Claude accent | `providerClaudeAccent` | dynamic warm system accent | dynamic warm system accent | Claude identity mark, non-status emphasis |
+| Provider/Claude wash | `providerClaudeWash` | low-opacity warm material tint | low-opacity warm material tint | Claude card accent rail or identity fill |
+| Provider/Codex accent | `providerCodexAccent` | dynamic cool system accent | dynamic cool system accent | Codex identity mark, non-status emphasis |
+| Provider/Codex wash | `providerCodexWash` | low-opacity cool material tint | low-opacity cool material tint | Codex card accent rail or identity fill |
 
 ### Rules
 
 - Use native dynamic system colors through SwiftUI/AppKit so light, dark, vibrancy, and accessibility contrast follow macOS.
 - Accent color is reserved for focus, selected state, links, and the strongest action in a view.
-- Do not introduce decorative gradients, one-off bright palettes, or marketing color blocks.
+- Provider identity accents are semantic identity tokens, not status tokens: Claude uses the warm accent family and Codex uses the cool accent family.
+- Status must pair color with visible text or a status glyph; never depend on color alone or color only status.
+- Do not introduce decorative gradients, orbs, one-off bright palettes, marketing color blocks, or arbitrary raw hex values in SwiftUI/product code.
 
 ## 3. Typography
 
@@ -70,16 +78,19 @@ All spacing derives from a 4pt base.
 
 ### Layout
 
-- Popover width: 320-360pt, fixed enough to avoid resize jitter.
+- Popover width: 320-360pt, fixed enough to avoid resize jitter; height may expand to about 580pt when quota progress bars and diagnostics are visible.
 - Settings window minimum: 720x520pt.
 - Use native sidebar or tab-like section navigation for Settings, not nested cards.
 - Rows use stable min heights so status changes do not shift the whole view.
+- Provider quota cards use a stable compact footprint: provider header, quota progress bar, reset countdown line, and only conditional diagnostic detail.
+- The bottom menu footer is separated from provider content by a native divider and uses full-width text rows for Settings, About QuotaWake, and Quit.
 
 ### Rules
 
 - No nested UI cards. Use grouped rows, dividers, native `Form`, `Table`, and `GroupBox` patterns.
 - Prefer dense, organized information over landing-page spacing.
 - Long paths and summaries must truncate in the middle or tail with tooltips/copy affordances later.
+- Do not build nested card stacks in the popover; provider quota cards sit directly on the glass shell.
 
 ## 5. Components
 
@@ -91,13 +102,32 @@ All spacing derives from a 4pt base.
 - **States**: normal, disabled, stale.
 - **Accessibility**: value text must carry the semantic status, not color alone.
 
-### Popover Command Bar
+### Provider Quota Card
 
-- **Structure**: horizontal row of native buttons for Run Now, Pause/Resume, Settings, Quit.
-- **Variants**: primary Run Now, secondary utility buttons.
+- **Structure**: provider identity mark or monogram, provider name, semantic status text/glyph, 5h quota progress bar, used/left labels, reset countdown, and conditional diagnostic detail.
+- **Variants**: Claude warm identity accent, Codex cool identity accent, unavailable, observed, stale, disabled.
+- **Spacing**: `space3` padding, `space2` row gaps, `space1` gaps inside compact metadata lines.
+- **Surface**: direct child of the glass popover shell with `popoverGlassStroke`; use a single subtle accent rail, mark fill, or chip, not a nested colored panel.
+- **States**: status copy and glyph change with state; identity accent stays stable so status never relies on color alone.
+- **Accessibility**: provider name, quota, reset countdown, diagnostics, and status are visible text or accessible labels.
+- **Diagnostics**: confidence/source detail is hidden in normal success/observed states and appears only for warning/error states where it explains uncertainty or blocking.
+
+### Popover Secondary Actions
+
+- **Structure**: compact secondary controls for manual provider actions when useful.
+- **Labels**: use `Send readiness now` and `Refresh quota` if these actions remain visible.
+- **Variants**: secondary, disabled, running.
 - **Spacing**: `space2` gaps, stable button widths when labels change.
-- **States**: enabled, disabled, running.
+- **States**: disabled or hidden when the action is not meaningful for the current provider state.
 - **Accessibility**: labels are explicit and keyboard-focusable.
+
+### Popover Menu Footer
+
+- **Structure**: bottom menu footer with separated full-width rows for Settings, About QuotaWake, and Quit.
+- **Variants**: normal row, destructive Quit row only when native menu styling supports it without visual noise.
+- **Spacing**: native menu row height, `space2` vertical grouping, divider above footer.
+- **States**: normal, hover/focus, disabled only when an action is temporarily unavailable.
+- **Accessibility**: footer actions must show visible text; do not hide Settings, About, or Quit behind icon-only controls.
 
 ### Settings Pane
 
@@ -134,11 +164,13 @@ All spacing derives from a 4pt base.
 
 ### Strategy
 
-Use native tonal shift and separators.
+Use native material/vibrancy, tonal shift, and separators.
 
 | Type | Treatment | Usage |
 | --- | --- | --- |
 | Primary surface | system window/popover background | App shell |
+| Glass popover shell | native popover/sidebar material with subtle vibrancy | Menu bar quota cockpit |
+| Glass edge | reduced-opacity separator stroke | Popover outline and card outlines |
 | Secondary surface | native grouped background | Settings groups and log rows |
 | Separator | native separator color | Section and row boundaries |
 | Elevation | native popover/window shadow only | OS-owned windows/popovers |
@@ -146,5 +178,8 @@ Use native tonal shift and separators.
 ### Rules
 
 - Do not add custom heavy shadows.
-- Use native popover/window depth instead of decorative containers.
+- Use native popover/window depth and material instead of decorative containers.
+- The glass treatment is a translucent native utility surface, not a decorative gradient, blurred orb, or marketing hero treatment.
+- Glass-only tonal treatment is allowed for the popover shell when paired with readable text, native separators, and explicit provider structure.
+- Provider quota cards may use a quiet glass stroke and identity accent, but must not become stacked promotional cards or color blocks.
 - Controls should feel like macOS controls, not a web dashboard port.
