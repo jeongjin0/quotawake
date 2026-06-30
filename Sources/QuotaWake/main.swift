@@ -482,10 +482,18 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         self.model = model
         model.startResetAwarePoller()
 
-        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "QW"
-        statusItem.button?.target = self
-        statusItem.button?.action = #selector(togglePopover(_:))
+        let statusItem = NSStatusBar.system.statusItem(withLength: 34)
+        statusItem.autosaveName = "QuotaWakeStatusItem"
+        if let button = statusItem.button {
+            button.image = nil
+            button.imagePosition = .noImage
+            button.title = "QW"
+            button.alignment = .center
+            button.toolTip = "QuotaWake"
+            button.target = self
+            button.action = #selector(togglePopover(_:))
+        }
+        statusItem.isVisible = true
         self.statusItem = statusItem
 
         let popover = NSPopover()
@@ -509,6 +517,15 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
             runNormalLaunchQA(config: normalLaunchQAConfig, model: model)
         }
         #endif
+    }
+
+    @MainActor
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // Re-opening the app from Finder should surface the menu-bar popover.
+        if settingsWindow?.isVisible != true {
+            togglePopover(nil)
+        }
+        return true
     }
 
     @MainActor
@@ -1413,6 +1430,10 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
                     usedPercent: 100,
                     remainingPercent: 0,
                     windowLabel: "5h",
+                    weeklyUsedPercent: tool == .codex ? 58 : 71,
+                    weeklyRemainingPercent: tool == .codex ? 42 : 29,
+                    weeklyResetAt: now.addingTimeInterval((tool == .codex ? 4 : 3) * 86_400 + 5 * 3_600),
+                    weeklyWindowLabel: "Weekly",
                     summary: "limit reset observed locally; next reset candidate is not due yet"
                 )
             case "migrated-old-settings":
@@ -1433,9 +1454,13 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
                     classification: .limitReached(resetAt: resetAt),
                     observedAt: now,
                     resetAt: resetAt,
-                    usedPercent: 100,
-                    remainingPercent: 0,
+                    usedPercent: tool == .codex ? 73 : 42,
+                    remainingPercent: tool == .codex ? 27 : 58,
                     windowLabel: "5h",
+                    weeklyUsedPercent: tool == .codex ? 49 : 38,
+                    weeklyRemainingPercent: tool == .codex ? 51 : 62,
+                    weeklyResetAt: now.addingTimeInterval((tool == .codex ? 5 : 4) * 86_400),
+                    weeklyWindowLabel: "Weekly",
                     summary: "reset candidate due from fake local CLI limit output"
                 )
             }
@@ -1553,10 +1578,25 @@ enum QWTheme {
     static let warning = Color(nsColor: .systemOrange)
     static let error = Color(nsColor: .systemRed)
     static let info = Color(nsColor: .systemBlue)
-    static let claudeAccent = Color(nsColor: .systemOrange)
-    static let claudeWash = Color(nsColor: .systemOrange).opacity(0.12)
-    static let codexAccent = Color(nsColor: .systemBlue)
-    static let codexWash = Color(nsColor: .systemBlue).opacity(0.10)
+    // Provider identity accents follow the Redesign v2 marks.
+    static let claudeAccent = Color(red: 0.851, green: 0.467, blue: 0.341) // #D97757
+    static let claudeWash = Color(red: 0.851, green: 0.467, blue: 0.341).opacity(0.12)
+    static let codexAccent = Color(red: 0.051, green: 0.051, blue: 0.051) // #0D0D0D
+    static let codexWash = Color(red: 0.051, green: 0.051, blue: 0.051).opacity(0.08)
+
+    // Redesign v2 status/pill palette (popover renders in fixed light mode).
+    static let pillGreen = Color(red: 0.114, green: 0.541, blue: 0.263) // #1d8a43
+    static let pillOrange = Color(red: 0.784, green: 0.388, blue: 0.102) // #c8631a
+    static let pillBlue = Color(red: 0.039, green: 0.435, blue: 0.839) // #0a6fd6
+    static let pillRed = Color(red: 0.824, green: 0.231, blue: 0.188) // #d23b30
+
+    // Neutral translucent card surface used by provider cards in the popover.
+    static let cardFill = Color.white
+    static let cardStroke = Color.black.opacity(0.10)
+    static let popoverInk = Color.black.opacity(0.86)
+    static let popoverInkSecondary = Color.black.opacity(0.5)
+    static let popoverInkTertiary = Color.black.opacity(0.4)
+    static let popoverHairline = Color.black.opacity(0.08)
 }
 
 enum QWSettingsTheme {

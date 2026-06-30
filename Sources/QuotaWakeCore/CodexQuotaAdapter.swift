@@ -203,6 +203,7 @@ public final class CodexQuotaAdapter {
                 summary: "codex app-server response did not include a quota window"
             )
         }
+        let weekly = Self.secondaryWindowFields(in: resultObject)
         return QuotaWindowState(
             tool: .codex,
             source: .codexLocalAppServer,
@@ -213,6 +214,10 @@ public final class CodexQuotaAdapter {
             usedPercent: Self.doubleValue(in: window, keys: ["usedPercent", "used_percent", "percentUsed", "usagePercent"]),
             remainingPercent: Self.remainingPercent(in: window),
             windowLabel: Self.windowLabel(in: window),
+            weeklyUsedPercent: weekly.flatMap { Self.doubleValue(in: $0, keys: ["usedPercent", "used_percent", "percentUsed", "usagePercent"]) },
+            weeklyRemainingPercent: weekly.flatMap { Self.remainingPercent(in: $0) },
+            weeklyResetAt: weekly.flatMap { Self.dateValue(in: $0, keys: ["resetAt", "reset_at", "resetsAt", "resets_at"]) },
+            weeklyWindowLabel: weekly.map { _ in "Weekly" },
             summary: "codex local quota window observed"
         )
     }
@@ -323,6 +328,37 @@ public final class CodexQuotaAdapter {
             return snapshot
         }
         return nil
+    }
+
+    // The Codex app-server reports a secondary (weekly) rate-limit window
+    // alongside the primary 5h window. Surface it for the weekly quota readout.
+    private static func secondaryWindowFields(in object: [String: Any]) -> [String: Any]? {
+        if let byLimitID = object["rateLimitsByLimitId"] as? [String: Any] {
+            if let codex = byLimitID["codex"] as? [String: Any],
+               let secondary = secondaryWindow(in: codex) {
+                return secondary
+            }
+            for value in byLimitID.values {
+                if let snapshot = value as? [String: Any],
+                   let secondary = secondaryWindow(in: snapshot) {
+                    return secondary
+                }
+            }
+        }
+        if let snapshot = object["rateLimits"] as? [String: Any],
+           let secondary = secondaryWindow(in: snapshot) {
+            return secondary
+        }
+        for key in ["secondaryWindow", "secondary_window", "weekly", "sevenDay", "seven_day"] {
+            if let value = object[key] as? [String: Any] {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private static func secondaryWindow(in snapshot: [String: Any]) -> [String: Any]? {
+        snapshot["secondary"] as? [String: Any]
     }
 
     private static func dateValue(in object: [String: Any], keys: [String]) -> Date? {

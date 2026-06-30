@@ -4,52 +4,203 @@ import SwiftUI
 
 struct ProviderQuotaCard: View {
     let provider: ProviderReadinessUIState
+    var isNextDue: Bool = false
+    var activityNote: String = ""
+    var onObserve: (() -> Void)?
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            RoundedRectangle(cornerRadius: 3)
-                .fill(provider.accent)
-                .frame(width: 3)
-                .accessibilityHidden(true)
-
-            VStack(spacing: 7) {
-                HStack(alignment: .center, spacing: 8) {
-                    ProviderIdentityMark(provider: provider)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(provider.displayName)
-                            .font(.system(size: 13, weight: .semibold))
-                            .lineLimit(1)
-                        Label(provider.statusText, systemImage: provider.statusTone.qwStatusImage)
-                            .labelStyle(.titleAndIcon)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(provider.statusTone.qwStatusColor)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                    Spacer(minLength: 8)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                ProviderIdentityMark(provider: provider)
+                Text(provider.displayName)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(QWTheme.popoverInk)
+                    .lineLimit(1)
+                StatusChip(text: provider.shortStatusLabel, tone: provider.statusTone)
+                Spacer(minLength: 6)
+                if isNextDue {
+                    Text("NEXT")
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(0.5)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(provider.accent))
+                        .accessibilityLabel("Next due")
                 }
+                Text(provider.resetCountdownDisplay)
+                    .font(.system(size: 21, weight: .semibold))
+                    .tracking(-0.5)
+                    .foregroundStyle(provider.resetCountdownDisplay == "—" ? QWTheme.popoverInk.opacity(0.28) : QWTheme.popoverInk)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
 
-                VStack(alignment: .leading, spacing: 7) {
-                    ProviderQuotaProgress(provider: provider)
-                    ProviderMetricLine(label: "Reset in", value: provider.resetCountdownText)
-                    if provider.showsDiagnosticDetail {
-                        ProviderDiagnosticLine(text: provider.diagnosticText)
+            QuotaBar(fraction: provider.remainingFraction, fill: provider.accent, known: provider.hasFiveHourSignal)
+
+            FiveHourSummaryLine(provider: provider, note: activityNote, onObserve: onObserve)
+
+            Rectangle()
+                .fill(QWTheme.popoverHairline)
+                .frame(height: 1)
+                .padding(.top, 1)
+
+            WeeklyQuotaRow(provider: provider)
+        }
+        .padding(13)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(QWTheme.cardFill.opacity(isNextDue ? 0.55 : 0.42))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(QWTheme.cardStroke, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Small tinted status tag (v2: "Observed" green / "Unknown" orange).
+struct StatusChip: View {
+    let text: String
+    let tone: UIStatusTone
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 9.5, weight: .semibold))
+            .foregroundStyle(tone.qwPillColor)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 5).fill(tone.qwPillColor.opacity(0.12)))
+    }
+}
+
+/// The line beneath the 5h bar: "58% quota left · sends only while Mac is active",
+/// or an unknown state with an inline Observe action.
+struct FiveHourSummaryLine: View {
+    let provider: ProviderReadinessUIState
+    var note: String = ""
+    var onObserve: (() -> Void)?
+
+    var body: some View {
+        if provider.hasFiveHourSignal {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(provider.fiveHourLeftText)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(QWTheme.popoverInk)
+                if !note.isEmpty {
+                    Text("· \(note)")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(QWTheme.popoverInkTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                Spacer(minLength: 0)
+            }
+        } else {
+            HStack(spacing: 8) {
+                Text("No local quota signal yet")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(QWTheme.popoverInkSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+                if let onObserve {
+                    Button(action: onObserve) {
+                        Text("Observe")
                     }
+                    .buttonStyle(QWInlineChipButtonStyle())
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, minHeight: provider.showsDiagnosticDetail ? 136 : 122, alignment: .topLeading)
-        .layoutPriority(provider.showsDiagnosticDetail ? 2 : 1)
-        .background(.thinMaterial)
-        .background(provider.wash)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(QWTheme.glassBorder, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Secondary weekly limit readout kept at the bottom of each provider card.
+struct WeeklyQuotaRow: View {
+    let provider: ProviderReadinessUIState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Weekly limit")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(QWTheme.popoverInkSecondary)
+                Spacer(minLength: 8)
+                Text(provider.weeklyValueText)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(provider.hasWeeklyData ? QWTheme.popoverInk : QWTheme.popoverInkSecondary)
+                    .lineLimit(1)
+            }
+            QuotaBar(
+                fraction: provider.weeklyRemainingFraction,
+                fill: provider.accent.opacity(0.55),
+                known: provider.hasWeeklyData,
+                height: 4
+            )
+            if provider.hasWeeklyData, provider.weeklyResetCountdownText != "Unknown" {
+                Text("Resets in \(provider.weeklyResetCountdownText)")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(QWTheme.popoverInkTertiary)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(provider.displayName) weekly limit")
+        .accessibilityValue(provider.hasWeeklyData ? "\(provider.weeklyValueText), resets in \(provider.weeklyResetCountdownText)" : "Unknown")
+    }
+}
+
+/// A thin quota bar. When the signal is unknown it renders a diagonal striped placeholder.
+struct QuotaBar: View {
+    let fraction: Double?
+    var fill: Color
+    var known: Bool = true
+    var height: CGFloat = 5
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            ZStack(alignment: .leading) {
+                if known {
+                    Capsule().fill(Color.black.opacity(0.09))
+                    if let fraction, fraction > 0 {
+                        Capsule()
+                            .fill(fill)
+                            .frame(width: max(3, width * min(fraction, 1)))
+                    }
+                } else {
+                    StripedTrack()
+                        .clipShape(Capsule())
+                }
+            }
+        }
+        .frame(height: height)
+    }
+}
+
+/// Diagonal hatch fill used for an unknown quota window (v2 striped track).
+struct StripedTrack: View {
+    var body: some View {
+        Canvas { context, size in
+            context.fill(
+                Path(CGRect(origin: .zero, size: size)),
+                with: .color(Color.black.opacity(0.06))
+            )
+            let spacing: CGFloat = 8
+            var x: CGFloat = -size.height
+            var path = Path()
+            while x < size.width {
+                path.move(to: CGPoint(x: x, y: size.height))
+                path.addLine(to: CGPoint(x: x + size.height, y: 0))
+                x += spacing
+            }
+            context.stroke(path, with: .color(Color.black.opacity(0.16)), lineWidth: 1.5)
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -96,133 +247,105 @@ private enum ProviderBrandIcon {
     }
 }
 
-struct ProviderQuotaProgress: View {
-    let provider: ProviderReadinessUIState
+/// Compact log feed for the most recent readiness runs (v2 RECENT ACTIVITY).
+struct RecentActivitySection: View {
+    let items: [LogRowUIState]
+    let openLogs: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("5h quota")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(QWTheme.secondaryText)
-                Spacer(minLength: 8)
-                Text(provider.quotaValueText)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(QWTheme.primaryText)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-
-            ProviderQuotaBar(provider: provider)
-
+        VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 8) {
-                Text(provider.quotaUsedText)
-                Spacer(minLength: 8)
-                if provider.usedPercent == nil {
-                    Text(provider.quotaRemainingText)
+                Text("RECENT ACTIVITY")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundStyle(QWTheme.popoverInkTertiary)
+                Spacer(minLength: 0)
+                Button(action: openLogs) {
+                    Text("All logs")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(QWTheme.pillBlue)
                 }
+                .buttonStyle(.plain)
             }
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(QWTheme.secondaryText)
-            .lineLimit(1)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(provider.displayName) 5h quota")
-        .accessibilityValue(provider.quotaText)
-    }
-}
 
-struct ProviderQuotaBar: View {
-    let provider: ProviderReadinessUIState
-
-    var body: some View {
-        GeometryReader { proxy in
-            let width = proxy.size.width
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(QWTheme.secondaryText.opacity(0.16))
-                if let fraction = provider.usedFraction {
-                    Capsule()
-                        .fill(provider.accent)
-                        .frame(width: max(4, width * fraction))
+            if items.isEmpty {
+                Text("No readiness runs yet")
+                    .font(.system(size: 11))
+                    .foregroundStyle(QWTheme.popoverInkSecondary)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { _, row in
+                        ActivityRow(row: row)
+                    }
                 }
             }
         }
-        .frame(height: 6)
-        .overlay(
-            Capsule()
-                .stroke(QWTheme.glassBorder.opacity(0.55), lineWidth: 1)
-        )
     }
 }
 
-struct ProviderDiagnosticLine: View {
-    let text: String
+struct ActivityRow: View {
+    let row: LogRowUIState
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(QWTheme.secondaryText)
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-struct ProviderMetricLine: View {
-    let label: String
-    let value: String
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(label)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(QWTheme.secondaryText)
-                .frame(width: 68, alignment: .leading)
-            Text(value)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(QWTheme.primaryText)
+        HStack(spacing: 8) {
+            Circle()
+                .fill(row.tone == .success ? QWTheme.pillGreen : (row.tone == .warning ? QWTheme.popoverInkTertiary : row.tone.qwPillColor))
+                .frame(width: 6, height: 6)
+            Text(String(row.timeText.prefix(5)))
+                .font(.system(size: 11).monospacedDigit())
+                .foregroundStyle(QWTheme.popoverInkTertiary)
+                .frame(width: 42, alignment: .leading)
+            Text(row.toolText)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(QWTheme.popoverInk)
+            Text(row.statusText)
+                .font(.system(size: 11))
+                .foregroundStyle(QWTheme.popoverInkSecondary)
                 .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
         }
+        .accessibilityElement(children: .combine)
     }
 }
 
+/// v2 horizontal footer: Reload · Settings … Quit.
 struct PopoverMenuFooter: View {
+    let reload: () -> Void
     let openSettings: () -> Void
-    let showAbout: () -> Void
     let quit: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Divider()
+            Rectangle()
+                .fill(QWTheme.popoverHairline)
+                .frame(height: 1)
 
-            VStack(spacing: 2) {
+            HStack(spacing: 2) {
+                Button(action: reload) {
+                    menuLabel("Reload", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(QWFooterChipStyle())
+
                 Button(action: openSettings) {
                     menuLabel("Settings", systemImage: "gearshape")
                 }
-                .buttonStyle(QWPopoverMenuRowStyle())
+                .buttonStyle(QWFooterChipStyle())
 
-                Button(action: showAbout) {
-                    menuLabel("About QuotaWake", systemImage: "info.circle")
-                }
-                .buttonStyle(QWPopoverMenuRowStyle())
+                Spacer(minLength: 0)
 
                 Button(action: quit) {
                     menuLabel("Quit", systemImage: "power")
                 }
-                .buttonStyle(QWPopoverMenuRowStyle(destructive: true))
+                .buttonStyle(QWFooterChipStyle(destructive: true))
             }
         }
     }
 
     private func menuLabel(_ title: String, systemImage: String) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Image(systemName: systemImage)
-                .frame(width: 16)
             Text(title)
-            Spacer(minLength: 0)
         }
     }
 }

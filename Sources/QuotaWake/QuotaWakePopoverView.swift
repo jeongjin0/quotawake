@@ -14,12 +14,17 @@ struct QuotaWakePopoverView: View {
     var body: some View {
         let state = model.popoverState
 
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 13) {
             PopoverHeader(state: state)
 
-            VStack(spacing: 8) {
+            VStack(spacing: 9) {
                 ForEach(state.providerStates, id: \.tool) { provider in
-                    ProviderQuotaCard(provider: provider)
+                    ProviderQuotaCard(
+                        provider: provider,
+                        isNextDue: provider.tool == nextDueTool(state),
+                        activityNote: activityNote(state),
+                        onObserve: model.observeLastResult
+                    )
                 }
             }
             .layoutPriority(1)
@@ -27,36 +32,18 @@ struct QuotaWakePopoverView: View {
             if let message = model.statusMessage {
                 Text(message)
                     .font(.system(size: 11))
-                    .foregroundStyle(QWTheme.secondaryText)
+                    .foregroundStyle(QWTheme.popoverInkSecondary)
                     .lineLimit(2)
                     .truncationMode(.tail)
             }
 
+            RecentActivitySection(items: state.recentActivity, openLogs: openSettings)
+
             Spacer(minLength: 0)
 
-            HStack(spacing: 8) {
-                Button {
-                    model.runNow()
-                } label: {
-                    Label(state.runNowTitle == "Sending..." ? state.runNowTitle : "Send readiness now", systemImage: "paperplane")
-                }
-                .disabled(!state.canRunNow)
-                .keyboardShortcut(.return, modifiers: [])
-                .buttonStyle(QWCommandButtonStyle())
-
-                Button {
-                    model.observeLastResult()
-                } label: {
-                    Label("Refresh quota", systemImage: "arrow.triangle.2.circlepath")
-                }
-                .buttonStyle(QWCommandButtonStyle())
-
-                Spacer()
-            }
-
             PopoverMenuFooter(
+                reload: model.observeLastResult,
                 openSettings: openSettings,
-                showAbout: showAbout,
                 quit: quit
             )
         }
@@ -69,8 +56,21 @@ struct QuotaWakePopoverView: View {
                 .stroke(QWTheme.glassBorder, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        .foregroundStyle(QWTheme.primaryText)
         .environment(\.colorScheme, .light)
+    }
+
+    /// The enabled provider whose window resets soonest gets the "NEXT" marker.
+    private func nextDueTool(_ state: PopoverUIState) -> ToolKind? {
+        state.providerStates.first { provider in
+            !["Unknown", "Not used", "Due now"].contains(provider.resetCountdownText)
+        }?.tool
+    }
+
+    /// The trailing note on each card's 5h summary line, driven by the active-use gate.
+    private func activityNote(_ state: PopoverUIState) -> String {
+        state.activityText.hasSuffix("on")
+            ? "sends only while Mac is active"
+            : "sends in the background"
     }
 }
 
@@ -78,31 +78,38 @@ struct PopoverHeader: View {
     let state: PopoverUIState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 8) {
-                Text("QuotaWake")
-                    .font(.system(size: 18, weight: .semibold))
-                Spacer()
-                Label(state.statusTitle, systemImage: state.statusTone.qwStatusImage)
-                    .labelStyle(.titleAndIcon)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(state.statusTone.qwStatusColor)
-                    .lineLimit(1)
-            }
-
-            Text(state.statusDetail)
-                .font(.system(size: 12))
-                .foregroundStyle(QWTheme.secondaryText)
-                .lineLimit(2)
-                .truncationMode(.tail)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text(state.readinessSummaryText)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(QWTheme.secondaryText)
-                .lineLimit(1)
-                .truncationMode(.tail)
+        HStack(spacing: 8) {
+            Text("QuotaWake")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(QWTheme.popoverInk)
+            Spacer(minLength: 8)
+            StatusPill(
+                title: state.statusTone == .success ? "Watching" : state.statusTitle,
+                tone: state.statusTone
+            )
         }
     }
+}
 
+/// Header readiness pill: tinted capsule with a leading dot (v2 "Watching").
+struct StatusPill: View {
+    let title: String
+    let tone: UIStatusTone
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(tone.qwPillColor)
+                .frame(width: 7, height: 7)
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .lineLimit(1)
+        }
+        .foregroundStyle(tone.qwPillColor)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(tone.qwPillColor.opacity(0.10)))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Status: \(title)")
+    }
 }

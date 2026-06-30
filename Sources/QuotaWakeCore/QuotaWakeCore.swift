@@ -5,7 +5,7 @@ public enum QuotaWakeCore {
 }
 
 public struct BundleMetadata: Equatable, Sendable {
-    public static let expectedBundleIdentifier = "com.jeongjin.quotawake"
+    public static let expectedBundleIdentifier = "com.jeongjin.quotawake.menubar"
     public static let expectedBundleName = "QuotaWake"
     public static let minimumSupportedMajorVersion = 13
 

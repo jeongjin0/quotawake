@@ -21,6 +21,7 @@ public enum QuotaWindowParser {
             return state(tool, source, .blocked, .authRequired, observedAt, nil, usedPercent(in: text), summary)
         }
         if let currentSession = currentSessionQuota(in: text, observedAt: observedAt) {
+            let week = currentWeekQuota(in: text, observedAt: observedAt)
             return QuotaWindowState(
                 tool: tool,
                 source: source,
@@ -31,6 +32,10 @@ public enum QuotaWindowParser {
                 usedPercent: currentSession.usedPercent,
                 remainingPercent: max(0, min(100, 100 - currentSession.usedPercent)),
                 windowLabel: "5h",
+                weeklyUsedPercent: week?.usedPercent,
+                weeklyRemainingPercent: week.map { max(0, min(100, 100 - $0.usedPercent)) },
+                weeklyResetAt: week?.resetAt,
+                weeklyWindowLabel: week != nil ? "Weekly" : nil,
                 summary: summary.isEmpty ? "current 5h quota window observed" : summary
             )
         }
@@ -104,6 +109,41 @@ public enum QuotaWindowParser {
         }
 
         return CurrentSessionQuota(usedPercent: usedPercent, resetAt: resetAt)
+    }
+
+    private struct WeekQuota {
+        let usedPercent: Double
+        let resetAt: Date?
+    }
+
+    // Claude `/usage` reports a weekly window ("Current week ...: NN% used, resets ...")
+    // beneath the current session. The reset clause is best-effort.
+    private static func currentWeekQuota(in text: String, observedAt: Date) -> WeekQuota? {
+        guard let usedPercent = matches(#"current\s+week[^:]*:\s*(\d{1,3}(?:\.\d+)?)\s*%\s*used\b"#, in: text)
+            .compactMap(Double.init)
+            .first else {
+            return nil
+        }
+
+        let resetPattern = #"current\s+week[^:]*:\s*\d{1,3}(?:\.\d+)?\s*%\s*used\b.*?\bresets\s+([A-Za-z]{3,9})\s+(\d{1,2})\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)(?:\s*\(([^)]+)\))?"#
+        var resetAt: Date?
+        if let captures = firstCaptureGroups(resetPattern, in: text, options: [.caseInsensitive, .dotMatchesLineSeparators]),
+           captures.count >= 5,
+           let month = captures[0],
+           let day = captures[1],
+           let hour = captures[2],
+           let meridiem = captures[4] {
+            resetAt = localResetDate(
+                month: month,
+                day: day,
+                hour: hour,
+                minute: captures[3],
+                meridiem: meridiem,
+                timeZoneIdentifier: captures.count > 5 ? captures[5] : nil,
+                observedAt: observedAt
+            )
+        }
+        return WeekQuota(usedPercent: usedPercent, resetAt: resetAt)
     }
 
     private static func currentSessionUsedPercent(in text: String) -> Double? {

@@ -1,7 +1,8 @@
 import QuotaWakeCore
 import SwiftUI
 
-struct QWPopoverMenuRowStyle: ButtonStyle {
+/// Horizontal footer menu item (Settings / About / Quit).
+struct QWFooterChipStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     var destructive = false
 
@@ -9,8 +10,8 @@ struct QWPopoverMenuRowStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 12, weight: .medium))
             .foregroundStyle(foreground)
-            .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 9)
+            .frame(minHeight: 28)
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(configuration.isPressed ? QWTheme.glassPressed : Color.clear)
@@ -19,9 +20,26 @@ struct QWPopoverMenuRowStyle: ButtonStyle {
 
     private var foreground: Color {
         if !isEnabled {
-            return QWTheme.secondaryText.opacity(0.65)
+            return Color.black.opacity(0.3)
         }
-        return destructive ? QWTheme.error : QWTheme.primaryText
+        return destructive ? QWTheme.pillRed : Color.black.opacity(0.62)
+    }
+}
+
+/// Small inline action chip used inside a card (v2 "Observe").
+struct QWInlineChipButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 10.5, weight: .semibold))
+            .foregroundStyle(isEnabled ? QWTheme.pillBlue : Color.black.opacity(0.3))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(QWTheme.pillBlue.opacity(configuration.isPressed ? 0.18 : 0.10))
+            )
     }
 }
 
@@ -53,6 +71,22 @@ extension UIStatusTone {
             return QWTheme.error
         case .info:
             return QWTheme.info
+        }
+    }
+
+    /// Redesign v2 chip/pill color for the popover's fixed light mode.
+    var qwPillColor: Color {
+        switch self {
+        case .success:
+            return QWTheme.pillGreen
+        case .info:
+            return QWTheme.pillBlue
+        case .warning:
+            return QWTheme.pillOrange
+        case .error:
+            return QWTheme.pillRed
+        case .neutral:
+            return QWTheme.popoverInkSecondary
         }
     }
 }
@@ -87,6 +121,61 @@ extension ProviderReadinessUIState {
 
     var usedFraction: Double? {
         usedPercent.map { min(max($0, 0), 100) / 100 }
+    }
+
+    var weeklyFraction: Double? {
+        weeklyUsedPercent.map { min(max($0, 0), 100) / 100 }
+    }
+
+    /// Whether the 5h window has a usable local quota signal (drives striped vs filled bar).
+    var hasFiveHourSignal: Bool {
+        usedPercent != nil || remainingPercent != nil
+    }
+
+    /// v2 fills the quota bar by remaining capacity (a fuel gauge), not by usage.
+    var remainingFraction: Double? {
+        if let remainingPercent { return min(max(remainingPercent, 0), 100) / 100 }
+        if let usedPercent { return min(max(100 - usedPercent, 0), 100) / 100 }
+        return nil
+    }
+
+    var weeklyRemainingFraction: Double? {
+        if let weeklyRemainingPercent { return min(max(weeklyRemainingPercent, 0), 100) / 100 }
+        if let weeklyUsedPercent { return min(max(100 - weeklyUsedPercent, 0), 100) / 100 }
+        return nil
+    }
+
+    /// "58% quota left" — the v2 5h summary line.
+    var fiveHourLeftText: String {
+        if let remainingPercent { return "\(Self.percentText(remainingPercent)) quota left" }
+        if let usedPercent { return "\(Self.percentText(100 - usedPercent)) quota left" }
+        return quotaValueText
+    }
+
+    /// Short tinted chip label matching v2's "Observed" / "Unknown" vocabulary.
+    var shortStatusLabel: String {
+        switch statusText {
+        case "Provider available": return "Available"
+        case "Reset candidate due": return "Ready"
+        case "Reset observed": return "Observed"
+        case "Quota unavailable": return "Unavailable"
+        case "Quota unknown": return "Unknown"
+        case "Provider blocked": return "Blocked"
+        case "Disabled": return "Off"
+        default: return statusText
+        }
+    }
+
+    /// The big reset countdown shown on the card header ("in 2h 41m" / "Due" / "—").
+    var resetCountdownDisplay: String {
+        switch resetCountdownText {
+        case "Unknown", "Not used":
+            return "—"
+        case "Due now":
+            return "Due"
+        default:
+            return "in \(resetCountdownText)"
+        }
     }
 
     var quotaValueText: String {

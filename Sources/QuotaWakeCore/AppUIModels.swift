@@ -41,6 +41,11 @@ public struct ProviderReadinessUIState: Equatable, Sendable {
     public let quotaText: String
     public let usedPercent: Double?
     public let remainingPercent: Double?
+    public let weeklyUsedPercent: Double?
+    public let weeklyRemainingPercent: Double?
+    public let weeklyValueText: String
+    public let weeklyResetCountdownText: String
+    public let hasWeeklyData: Bool
     public let lastReadinessText: String
     public let nextResetText: String
     public let resetCountdownText: String
@@ -69,6 +74,7 @@ public struct PopoverUIState: Equatable, Sendable {
     public let canRunNow: Bool
     public let toolStates: [ToolUIState]
     public let providerStates: [ProviderReadinessUIState]
+    public let recentActivity: [LogRowUIState]
 }
 
 public enum SettingsPaneID: String, CaseIterable, Equatable, Sendable {
@@ -155,7 +161,11 @@ public enum QuotaWakeUIStateBuilder {
             runNowTitle: isRunning ? "Sending..." : "Send",
             canRunNow: !isRunning && !runnableTools.isEmpty,
             toolStates: toolStates,
-            providerStates: providerStates
+            providerStates: providerStates,
+            recentActivity: logs
+                .sorted { $0.startedAt > $1.startedAt }
+                .prefix(3)
+                .map { logRow($0, calendar: calendar) }
         )
     }
 
@@ -228,6 +238,8 @@ public enum QuotaWakeUIStateBuilder {
                 $0.lastReadinessText,
                 $0.nextResetText,
                 $0.resetCountdownText,
+                $0.weeklyValueText,
+                $0.weeklyResetCountdownText,
                 $0.confidenceText,
                 $0.sourceText,
                 $0.detailText,
@@ -243,6 +255,8 @@ public enum QuotaWakeUIStateBuilder {
                 $0.lastReadinessText,
                 $0.nextResetText,
                 $0.resetCountdownText,
+                $0.weeklyValueText,
+                $0.weeklyResetCountdownText,
                 $0.confidenceText,
                 $0.sourceText,
                 $0.detailText,
@@ -396,6 +410,29 @@ public enum QuotaWakeUIStateBuilder {
         return (used, remaining)
     }
 
+    private static func weeklyValues(
+        _ state: QuotaWindowState,
+        now: Date
+    ) -> (used: Double?, remaining: Double?, valueText: String, countdown: String, hasData: Bool) {
+        var used = state.weeklyUsedPercent.map(clampedPercent)
+        var remaining = state.weeklyRemainingPercent.map(clampedPercent)
+        if used == nil, let remaining { used = clampedPercent(100 - remaining) }
+        if remaining == nil, let used { remaining = clampedPercent(100 - used) }
+        let hasData = used != nil || remaining != nil || state.weeklyResetAt != nil
+        let valueText: String
+        if let remaining {
+            valueText = "\(percentText(remaining)) left"
+        } else if let used {
+            valueText = "\(percentText(used)) used"
+        } else if hasData {
+            valueText = "Observed"
+        } else {
+            valueText = "Unknown"
+        }
+        let countdown = state.weeklyResetAt.map { resetCountdownText(until: $0, now: now) } ?? "Unknown"
+        return (used, remaining, valueText, countdown, hasData)
+    }
+
     private static func quotaPercentText(_ state: QuotaWindowState) -> String? {
         if let remainingPercent = state.remainingPercent {
             return "\(percentText(remainingPercent)) left"
@@ -516,6 +553,11 @@ public enum QuotaWakeUIStateBuilder {
                 quotaText: "Not used",
                 usedPercent: nil,
                 remainingPercent: nil,
+                weeklyUsedPercent: nil,
+                weeklyRemainingPercent: nil,
+                weeklyValueText: "Not used",
+                weeklyResetCountdownText: "Not used",
+                hasWeeklyData: false,
                 lastReadinessText: lastRunText(latestLog),
                 nextResetText: "Not used",
                 resetCountdownText: "Not used",
@@ -536,6 +578,11 @@ public enum QuotaWakeUIStateBuilder {
                 quotaText: "5h quota unknown",
                 usedPercent: nil,
                 remainingPercent: nil,
+                weeklyUsedPercent: nil,
+                weeklyRemainingPercent: nil,
+                weeklyValueText: "Unknown",
+                weeklyResetCountdownText: "Unknown",
+                hasWeeklyData: false,
                 lastReadinessText: lastRunText(latestLog),
                 nextResetText: "Unknown",
                 resetCountdownText: "Unknown",
@@ -552,6 +599,7 @@ public enum QuotaWakeUIStateBuilder {
         let detail = truncateMiddle(quotaState.summary, maxCharacters: 140)
         let (status, tone) = providerStatus(quotaState, now: now)
         let (usedPercent, remainingPercent) = providerQuotaPercents(quotaState)
+        let weekly = weeklyValues(quotaState, now: now)
         let confidence = confidenceText(quotaState.confidence)
         let source = sourceText(quotaState.source)
         return ProviderReadinessUIState(
@@ -562,6 +610,11 @@ public enum QuotaWakeUIStateBuilder {
             quotaText: providerQuotaText(quotaState),
             usedPercent: usedPercent,
             remainingPercent: remainingPercent,
+            weeklyUsedPercent: weekly.used,
+            weeklyRemainingPercent: weekly.remaining,
+            weeklyValueText: weekly.valueText,
+            weeklyResetCountdownText: weekly.countdown,
+            hasWeeklyData: weekly.hasData,
             lastReadinessText: lastRunText(latestLog),
             nextResetText: nextReset,
             resetCountdownText: resetCountdown,

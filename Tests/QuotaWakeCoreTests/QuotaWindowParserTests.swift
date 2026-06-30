@@ -87,6 +87,28 @@ final class QuotaWindowParserTests: XCTestCase {
         XCTAssertEqual(state.windowLabel, "5h")
     }
 
+    func testParseClaudeCurrentWeekPopulatesWeeklyWindow() throws {
+        let observedAt = try XCTUnwrap(Self.iso.date(from: "2026-06-29T07:15:00Z"))
+        let state = QuotaWindowParser.parse(
+            tool: .claude,
+            source: .claudeUsageProbe,
+            stdout: """
+            Current session: 22% used · resets Jun 29 at 6:10pm (Asia/Seoul)
+            Current week (all models): 47% used · resets Jul 3 at 9:00am (Asia/Seoul)
+            """,
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+            observedAt: observedAt
+        )
+
+        let weeklyReset = try XCTUnwrap(state.weeklyResetAt)
+        XCTAssertEqual(state.weeklyUsedPercent, 47)
+        XCTAssertEqual(state.weeklyRemainingPercent, 53)
+        XCTAssertEqual(state.weeklyWindowLabel, "Weekly")
+        XCTAssertGreaterThan(weeklyReset, observedAt)
+    }
+
     func testUsageInsightPercentDoesNotBecomeFiveHourQuotaPercent() {
         let state = QuotaWindowParser.parse(
             tool: .claude,

@@ -69,6 +69,10 @@ final class CodexQuotaAdapterTests: XCTestCase {
         XCTAssertEqual(state.usedPercent, 47)
         XCTAssertEqual(state.remainingPercent, 53)
         XCTAssertEqual(state.windowLabel, "5h")
+        XCTAssertEqual(state.weeklyUsedPercent, 16)
+        XCTAssertEqual(state.weeklyRemainingPercent, 84)
+        XCTAssertEqual(state.weeklyResetAt, Date(timeIntervalSince1970: 1_783_297_367))
+        XCTAssertEqual(state.weeklyWindowLabel, "Weekly")
     }
 
     func testObserveClassifiesEmptyAppServerOutputAsQuotaUnavailable() {
