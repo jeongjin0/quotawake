@@ -128,13 +128,15 @@ public enum QuotaWakeUIStateBuilder {
         let enabledTools = toolStates.filter(\.enabled)
         let runnableTools = enabledTools.filter { $0.status == .found }
         let latestLog = logs.sorted { $0.endedAt < $1.endedAt }.last
-        let providerStates = providerStates(
+        let allProviderStates = providerStates(
             settings: settings,
             quotaStates: quotaStates,
             latestLogs: latestLogsByTool(logs),
             now: now,
             calendar: calendar
         )
+        let runnableToolSet = Set(runnableTools.map(\.tool))
+        let providerStates = allProviderStates.filter { runnableToolSet.contains($0.tool) }
         let status = statusSummary(
             settings: settings,
             toolStates: toolStates,

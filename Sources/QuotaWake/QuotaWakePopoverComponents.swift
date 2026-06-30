@@ -4,7 +4,6 @@ import SwiftUI
 
 struct ProviderQuotaCard: View {
     let provider: ProviderReadinessUIState
-    var isNextDue: Bool = false
     var activityNote: String = ""
     var onObserve: (() -> Void)?
 
@@ -16,42 +15,39 @@ struct ProviderQuotaCard: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(QWTheme.popoverInk)
                     .lineLimit(1)
-                StatusChip(text: provider.shortStatusLabel, tone: provider.statusTone)
                 Spacer(minLength: 6)
-                if isNextDue {
-                    Text("NEXT")
-                        .font(.system(size: 9, weight: .bold))
-                        .tracking(0.5)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(provider.accent))
-                        .accessibilityLabel("Next due")
-                }
-                Text(provider.resetCountdownDisplay)
-                    .font(.system(size: 21, weight: .semibold))
-                    .tracking(-0.5)
-                    .foregroundStyle(provider.resetCountdownDisplay == "—" ? QWTheme.popoverInk.opacity(0.28) : QWTheme.popoverInk)
-                    .lineLimit(1)
-                    .fixedSize()
             }
 
-            QuotaBar(fraction: provider.remainingFraction, fill: provider.accent, known: provider.hasFiveHourSignal)
+            QuotaWindowSection(
+                title: "5h window",
+                valueText: provider.fiveHourValueText,
+                valueKnown: provider.hasFiveHourSignal,
+                fraction: provider.remainingFraction,
+                fill: provider.accent,
+                known: provider.hasFiveHourSignal,
+                footnote: provider.fiveHourResetFootnote,
+                detailNote: provider.hasFiveHourSignal ? activityNote : "No local quota signal yet",
+                actionTitle: provider.hasFiveHourSignal ? nil : "Observe",
+                onAction: onObserve
+            )
 
-            FiveHourSummaryLine(provider: provider, note: activityNote, onObserve: onObserve)
-
-            Rectangle()
-                .fill(QWTheme.popoverHairline)
-                .frame(height: 1)
-                .padding(.top, 1)
-
-            WeeklyQuotaRow(provider: provider)
+            QuotaWindowSection(
+                title: "Weekly limit",
+                valueText: provider.weeklyValueText,
+                valueKnown: provider.hasWeeklyData,
+                fraction: provider.weeklyRemainingFraction,
+                fill: provider.accent,
+                known: provider.hasWeeklyData,
+                footnote: provider.hasWeeklyData && provider.weeklyResetCountdownText != "Unknown"
+                    ? "Resets in \(provider.weeklyResetCountdownText)"
+                    : nil
+            )
         }
         .padding(13)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(QWTheme.cardFill.opacity(isNextDue ? 0.55 : 0.42))
+                .fill(QWTheme.cardFill.opacity(0.42))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10)
@@ -62,95 +58,84 @@ struct ProviderQuotaCard: View {
     }
 }
 
-/// Small tinted status tag (v2: "Observed" green / "Unknown" orange).
-struct StatusChip: View {
-    let text: String
-    let tone: UIStatusTone
+/// Uniform quota-window readout used for both 5h and weekly windows.
+struct QuotaWindowSection: View {
+    let title: String
+    let valueText: String
+    let valueKnown: Bool
+    let fraction: Double?
+    let fill: Color
+    let known: Bool
+    var footnote: String?
+    var detailNote: String?
+    var actionTitle: String?
+    var onAction: (() -> Void)?
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 9.5, weight: .semibold))
-            .foregroundStyle(tone.qwPillColor)
-            .lineLimit(1)
-            .fixedSize()
-            .padding(.horizontal, 7)
-            .padding(.vertical, 2)
-            .background(RoundedRectangle(cornerRadius: 5).fill(tone.qwPillColor.opacity(0.12)))
-    }
-}
-
-/// The line beneath the 5h bar: "58% quota left · sends only while Mac is active",
-/// or an unknown state with an inline Observe action.
-struct FiveHourSummaryLine: View {
-    let provider: ProviderReadinessUIState
-    var note: String = ""
-    var onObserve: (() -> Void)?
-
-    var body: some View {
-        if provider.hasFiveHourSignal {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(provider.fiveHourLeftText)
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(QWTheme.popoverInk)
-                if !note.isEmpty {
-                    Text("· \(note)")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(QWTheme.popoverInkTertiary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                Spacer(minLength: 0)
-            }
-        } else {
-            HStack(spacing: 8) {
-                Text("No local quota signal yet")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(QWTheme.popoverInkSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 0)
-                if let onObserve {
-                    Button(action: onObserve) {
-                        Text("Observe")
-                    }
-                    .buttonStyle(QWInlineChipButtonStyle())
-                }
-            }
-        }
-    }
-}
-
-/// Secondary weekly limit readout kept at the bottom of each provider card.
-struct WeeklyQuotaRow: View {
-    let provider: ProviderReadinessUIState
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("Weekly limit")
+                Text(title)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(QWTheme.popoverInkSecondary)
                 Spacer(minLength: 8)
-                Text(provider.weeklyValueText)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(provider.hasWeeklyData ? QWTheme.popoverInk : QWTheme.popoverInkSecondary)
+                Text(valueText)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(valueKnown ? QWTheme.popoverInk : QWTheme.popoverInkSecondary)
                     .lineLimit(1)
             }
-            QuotaBar(
-                fraction: provider.weeklyRemainingFraction,
-                fill: provider.accent.opacity(0.55),
-                known: provider.hasWeeklyData,
-                height: 4
-            )
-            if provider.hasWeeklyData, provider.weeklyResetCountdownText != "Unknown" {
-                Text("Resets in \(provider.weeklyResetCountdownText)")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(QWTheme.popoverInkTertiary)
+            QuotaBar(fraction: fraction, fill: fill, known: known)
+            if footnote != nil || detailNote != nil || actionTitle != nil {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    detailText
+                    Spacer(minLength: 0)
+                    if let actionTitle, let onAction {
+                        Button(action: onAction) {
+                            Text(actionTitle)
+                        }
+                        .buttonStyle(QWInlineChipButtonStyle())
+                    }
+                }
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(provider.displayName) weekly limit")
-        .accessibilityValue(provider.hasWeeklyData ? "\(provider.weeklyValueText), resets in \(provider.weeklyResetCountdownText)" : "Unknown")
+        .accessibilityLabel(title)
+        .accessibilityValue(accessibilityValue)
+    }
+
+    @ViewBuilder
+    private var detailText: some View {
+        if let footnote, let detailNote {
+            (
+                Text(footnote)
+                    .fontWeight(.semibold)
+                    .foregroundColor(QWTheme.popoverInkSecondary)
+                + Text(" · \(detailNote)")
+                    .foregroundColor(QWTheme.popoverInkTertiary)
+            )
+            .font(.system(size: 10.5, weight: .medium))
+            .lineLimit(1)
+            .truncationMode(.tail)
+        } else if let footnote {
+            Text(footnote)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(QWTheme.popoverInkTertiary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        } else if let detailNote {
+            Text(detailNote)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(QWTheme.popoverInkTertiary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+    }
+
+    private var accessibilityValue: String {
+        let details = [footnote, detailNote].compactMap { $0 }
+        if !details.isEmpty {
+            return "\(valueText), \(details.joined(separator: ", "))"
+        }
+        return valueText
     }
 }
 
@@ -236,7 +221,7 @@ private enum ProviderBrandIcon {
         if let cached = cache[tool] {
             return cached
         }
-        guard let url = Bundle.main.url(forResource: tool.providerIconResourceName, withExtension: "svg"),
+        guard let url = resourceURL(for: tool),
               let image = NSImage(contentsOf: url)
         else {
             return nil
@@ -245,8 +230,26 @@ private enum ProviderBrandIcon {
         cache[tool] = image
         return image
     }
-}
 
+    private static func resourceURL(for tool: ToolKind) -> URL? {
+        if let bundled = Bundle.main.url(forResource: tool.providerIconResourceName, withExtension: "svg") {
+            return bundled
+        }
+
+        let fileManager = FileManager.default
+        let resourceName = "\(tool.providerIconResourceName).svg"
+        var directory = URL(fileURLWithPath: fileManager.currentDirectoryPath, isDirectory: true)
+        for _ in 0..<6 {
+            let candidate = directory.appendingPathComponent("Resources", isDirectory: true)
+                .appendingPathComponent(resourceName, isDirectory: false)
+            if fileManager.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+            directory.deleteLastPathComponent()
+        }
+        return nil
+    }
+}
 /// Compact log feed for the most recent readiness runs (v2 RECENT ACTIVITY).
 struct RecentActivitySection: View {
     let items: [LogRowUIState]

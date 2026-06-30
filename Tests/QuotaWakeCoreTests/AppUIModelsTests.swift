@@ -88,9 +88,25 @@ final class AppUIModelsTests: XCTestCase {
         XCTAssertEqual(popover.statusTone, .warning)
         XCTAssertEqual(popover.toolStates.first { $0.tool == .claude }?.statusText, "Choose path")
         XCTAssertEqual(popover.toolStates.first { $0.tool == .codex }?.statusText, "Manual path invalid")
+        XCTAssertTrue(popover.providerStates.isEmpty)
         XCTAssertLessThanOrEqual(popover.toolStates.first { $0.tool == .codex }?.pathText.count ?? 999, 78)
         XCTAssertTrue(popover.toolStates.first { $0.tool == .codex }?.pathText.contains("...") == true)
         XCTAssertLessThanOrEqual(uiSettings.logRows.first?.summaryText.count ?? 999, 120)
+        XCTAssertEqual(uiSettings.providerStates.count, ToolKind.allCases.count)
+
+        let claudeOnly = QuotaWakeUIStateBuilder.makePopoverState(
+            settings: settings,
+            logs: [],
+            resolvedCommands: [
+                command(tool: .claude, status: .found, path: "/usr/local/bin/claude"),
+                command(tool: .codex, status: .manualPathInvalid, path: settings.tools.codex.manualPath)
+            ],
+            quotaStates: [quotaWindow(tool: .claude, confidence: .exactReset, resetAt: date("2026-06-28T07:00:00Z"))],
+            now: date("2026-06-28T05:30:00Z"),
+            calendar: calendar
+        )
+        XCTAssertEqual(claudeOnly.providerStates.map(\.tool), [.claude])
+        XCTAssertEqual(claudeOnly.providerStates.first?.resetCountdownText, "1h 30m")
 
         settings.tools.codex.enabled = false
         let disabled = QuotaWakeUIStateBuilder.makePopoverState(

@@ -21,7 +21,6 @@ struct QuotaWakePopoverView: View {
                 ForEach(state.providerStates, id: \.tool) { provider in
                     ProviderQuotaCard(
                         provider: provider,
-                        isNextDue: provider.tool == nextDueTool(state),
                         activityNote: activityNote(state),
                         onObserve: model.observeLastResult
                     )
@@ -57,13 +56,6 @@ struct QuotaWakePopoverView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .environment(\.colorScheme, .light)
-    }
-
-    /// The enabled provider whose window resets soonest gets the "NEXT" marker.
-    private func nextDueTool(_ state: PopoverUIState) -> ToolKind? {
-        state.providerStates.first { provider in
-            !["Unknown", "Not used", "Due now"].contains(provider.resetCountdownText)
-        }?.tool
     }
 
     /// The trailing note on each card's 5h summary line, driven by the active-use gate.

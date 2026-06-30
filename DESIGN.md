@@ -104,19 +104,21 @@ All spacing derives from a 4pt base.
 
 ### Provider Quota Card
 
-- **Structure**: a single column card. Top row = provider identity mark, provider name, a short tinted status chip ("Observed" / "Ready" / "Unknown" / "Unavailable"), an optional `NEXT` badge (provider whose window resets soonest), and a large reset countdown ("in 2h 41m" / "Due" / "—"). Below: a thin 5h quota bar that fills by **remaining** capacity (a fuel gauge), a one-line 5h summary ("58% quota left · sends only while Mac is active") and, separated by a hairline divider, a Weekly Limit row.
-- **Identity accents**: Claude `#D97757` (warm coral), Codex `#0D0D0D` (near-black). The accent appears only on the identity mark, the bar fill, and the `NEXT` badge — never as a card background wash.
-- **Variants**: per-window known / unknown. When the 5h window has no local signal the bar renders a diagonal striped track and the summary line shows "No local quota signal yet" with an inline `Observe` chip.
+- **Structure**: a single column card. Top row = provider identity mark and provider name. Below: a 5h quota-window section followed by a Weekly Limit section. Both quota-window sections use the same label/value/bar/reset-footnote rhythm so weekly is treated as a peer signal rather than a muted footer.
+- **Identity accents**: Claude `#D97757` (warm coral), Codex `#0D0D0D` (near-black). The accent appears only on the identity mark and bar fill — never as a card background wash.
+- **Variants**: per-window known / unknown. When a window has no local signal the bar renders a diagonal striped track; the 5h section shows "No local quota signal yet" with an inline `Observe` chip.
+- **Reset labels**: 5h and weekly reset countdowns are shown inside their own quota-window sections. Do not put an unlabeled countdown or next-due badge in the card header.
 - **Spacing**: `space3` padding, `space2`–`space3` row gaps, `space1` gaps inside compact metadata lines.
 - **Surface**: a neutral translucent white card (≈0.55 opacity for the next-due provider, ≈0.42 for others) on the glass popover shell with a hairline stroke; one card per provider, never nested colored panels.
-- **States**: status chip copy and tone change with state; identity accent stays stable so status never relies on color alone. The `NEXT` badge marks the soonest-due enabled provider.
+- **States**: identity accent stays stable so provider identity never relies on text alone.
 - **Accessibility**: provider name, 5h quota, weekly quota, reset countdowns, and status are visible text or accessible labels; the striped track is decorative and hidden from accessibility.
+- **Visibility**: the popover renders provider quota cards only for enabled tools whose CLI is detected and runnable. Missing, invalid, disabled, or broken tools are surfaced through the status pill and Settings tools pane, not as normal quota cards.
 
 ### Weekly Limit Row
 
-- **Structure**: a compact secondary readout at the bottom of each provider card — "Weekly limit" label, a percent value ("62% left" / "Unknown"), a thin muted-accent bar, and a "Resets in Xd" line when known.
+- **Structure**: a peer quota-window readout at the bottom of each provider card — "Weekly limit" label, a percent value ("62% left" / "Unknown"), the same thin accent bar treatment as the 5h row, and its own "Resets in Xd" line when known.
 - **Source**: Codex's secondary rate-limit window and Claude's `/usage` "current week" line; both are best-effort and degrade to a striped "Unknown" track when no signal is present.
-- **Rules**: the weekly bar uses a lower-emphasis accent (≈0.65 opacity) and a thinner height than the 5h bar, so the 5h window stays the primary signal and weekly reads as supporting context.
+- **Rules**: the weekly bar uses the provider accent and bar height consistently with the 5h window. Vertical placement and section labels separate the two windows, not a divider, reduced opacity, or smaller geometry.
 
 ### Recent Activity
 

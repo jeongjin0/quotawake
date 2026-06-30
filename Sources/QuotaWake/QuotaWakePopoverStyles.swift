@@ -145,36 +145,29 @@ extension ProviderReadinessUIState {
         return nil
     }
 
-    /// "58% quota left" — the v2 5h summary line.
+    /// "58% left" — the compact value shown in the 5h quota-window row.
+    var fiveHourValueText: String {
+        if let remainingPercent { return "\(Self.percentText(remainingPercent)) left" }
+        if let usedPercent { return "\(Self.percentText(100 - usedPercent)) left" }
+        return "Unknown"
+    }
+
+    /// "58% quota left" — retained for summary surfaces outside the quota-window row.
     var fiveHourLeftText: String {
         if let remainingPercent { return "\(Self.percentText(remainingPercent)) quota left" }
         if let usedPercent { return "\(Self.percentText(100 - usedPercent)) quota left" }
         return quotaValueText
     }
 
-    /// Short tinted chip label matching v2's "Observed" / "Unknown" vocabulary.
-    var shortStatusLabel: String {
-        switch statusText {
-        case "Provider available": return "Available"
-        case "Reset candidate due": return "Ready"
-        case "Reset observed": return "Observed"
-        case "Quota unavailable": return "Unavailable"
-        case "Quota unknown": return "Unknown"
-        case "Provider blocked": return "Blocked"
-        case "Disabled": return "Off"
-        default: return statusText
-        }
-    }
-
-    /// The big reset countdown shown on the card header ("in 2h 41m" / "Due" / "—").
-    var resetCountdownDisplay: String {
+    /// The 5h/window reset footnote shown inside the 5h quota-window section.
+    var fiveHourResetFootnote: String? {
         switch resetCountdownText {
         case "Unknown", "Not used":
-            return "—"
+            return nil
         case "Due now":
-            return "Due"
+            return "Reset due"
         default:
-            return "in \(resetCountdownText)"
+            return "Resets in \(resetCountdownText)"
         }
     }
 
