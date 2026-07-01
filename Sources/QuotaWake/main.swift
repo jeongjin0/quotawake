@@ -443,6 +443,8 @@ final class QuotaWakeAppModel: ObservableObject {
 }
 
 final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
+    private static let statusItemImageResourceName = "QuotaWakeStatusTemplate"
+
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var settingsWindow: NSWindow?
@@ -480,18 +482,25 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         let model = QuotaWakeAppModel()
         #endif
         self.model = model
+        #if DEBUG
+        if normalLaunchQAConfig == nil {
+            model.startResetAwarePoller()
+        }
+        #else
         model.startResetAwarePoller()
+        #endif
 
-        let statusItem = NSStatusBar.system.statusItem(withLength: 34)
+        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.autosaveName = "QuotaWakeStatusItem"
         if let button = statusItem.button {
-            button.image = nil
-            button.imagePosition = .noImage
-            button.title = "QW"
+            button.image = Self.makeStatusItemImage()
+            button.imagePosition = .imageOnly
+            button.title = ""
             button.alignment = .center
             button.toolTip = "QuotaWake"
             button.target = self
             button.action = #selector(togglePopover(_:))
+            button.setAccessibilityLabel("QuotaWake")
         }
         statusItem.isVisible = true
         self.statusItem = statusItem
@@ -517,6 +526,23 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
             runNormalLaunchQA(config: normalLaunchQAConfig, model: model)
         }
         #endif
+    }
+
+    private static func makeStatusItemImage() -> NSImage? {
+        let image: NSImage?
+        if let url = Bundle.main.url(
+            forResource: statusItemImageResourceName,
+            withExtension: "png"
+        ) {
+            image = NSImage(contentsOf: url)
+        } else {
+            image = NSImage(systemSymbolName: "moon.fill", accessibilityDescription: "QuotaWake")
+        }
+
+        _ = image?.setName(NSImage.Name(statusItemImageResourceName))
+        image?.isTemplate = true
+        image?.size = NSSize(width: 18, height: 18)
+        return image
     }
 
     @MainActor
@@ -642,9 +668,16 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
             }
 
             do {
+                let statusButton = self.statusItem?.button
+                let statusImage = statusButton?.image
                 try config.writeEvidence(
-                    statusItemReady: self.statusItem?.button != nil,
-                    statusItemTitle: self.statusItem?.button?.title ?? "",
+                    statusItemReady: statusButton != nil,
+                    statusItemTitle: statusButton?.title ?? "",
+                    statusItemHasImage: statusImage != nil,
+                    statusItemImageIsTemplate: statusImage?.isTemplate ?? false,
+                    statusItemImageSize: statusImage?.size ?? .zero,
+                    statusItemImageName: statusImage?.name() ?? "",
+                    statusItemImage: statusImage,
                     popoverShown: self.popover?.isShown ?? false,
                     popoverSize: self.popover?.contentSize ?? .zero,
                     settingsWindowShown: self.settingsWindow?.isVisible ?? false,
@@ -2855,6 +2888,11 @@ struct NormalLaunchQAConfig {
     func writeEvidence(
         statusItemReady: Bool,
         statusItemTitle: String,
+        statusItemHasImage: Bool,
+        statusItemImageIsTemplate: Bool,
+        statusItemImageSize: NSSize,
+        statusItemImageName: String,
+        statusItemImage: NSImage?,
         popoverShown: Bool,
         popoverSize: NSSize,
         settingsWindowShown: Bool,
@@ -2867,6 +2905,11 @@ struct NormalLaunchQAConfig {
             "normalLaunch": true,
             "statusItemReady": statusItemReady,
             "statusItemTitle": statusItemTitle,
+            "statusItemHasImage": statusItemHasImage,
+            "statusItemImageIsTemplate": statusItemImageIsTemplate,
+            "statusItemImageName": statusItemImageName,
+            "statusItemImageWidth": Int(statusItemImageSize.width),
+            "statusItemImageHeight": Int(statusItemImageSize.height),
             "popoverShown": popoverShown,
             "popoverWidth": Int(popoverSize.width),
             "popoverHeight": Int(popoverSize.height),
@@ -2878,6 +2921,12 @@ struct NormalLaunchQAConfig {
         ]
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: evidenceDirectory.appendingPathComponent("normal-launch.json"), options: [.atomic])
+        if let statusItemImage {
+            try Self.writePNG(
+                image: statusItemImage,
+                to: evidenceDirectory.appendingPathComponent("status-item-image.png")
+            )
+        }
         try Self.copyLogs(from: paths.logsDirectory, to: evidenceDirectory.appendingPathComponent("normal-launch.jsonl"))
         try Self.writeRunSummary(
             logs: storedLogs,
@@ -2908,6 +2957,17 @@ struct NormalLaunchQAConfig {
         """
         try script.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+    }
+
+    private static func writePNG(image: NSImage, to url: URL) throws {
+        guard
+            let tiffData = image.tiffRepresentation,
+            let bitmap = NSBitmapImageRep(data: tiffData),
+            let data = bitmap.representation(using: .png, properties: [:])
+        else {
+            throw UIQAError.pngCreationFailed
+        }
+        try data.write(to: url, options: [.atomic])
     }
 
     private static func copyLogs(from logsDirectory: URL, to outputURL: URL) throws {
