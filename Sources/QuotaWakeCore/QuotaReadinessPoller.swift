@@ -93,6 +93,12 @@ public final class QuotaReadinessPoller {
         guard settings.firstRunCompleted else {
             return
         }
+        guard settings.background.launchAtLoginEnabled else {
+            return
+        }
+        guard !settings.readiness.paused else {
+            return
+        }
 
         let commands = commandsProvider()
         let logs = try logStore.readAll()
@@ -208,14 +214,18 @@ public final class QuotaReadinessPoller {
 
     private func appendIfMissing(_ entry: RunLogEntry) throws {
         let alreadyLogged = try logStore.readAll().contains { logged in
-            logged.eventId == entry.eventId
-                && logged.tool == entry.tool
-                && logged.status == entry.status
-                && logged.startedAt == entry.startedAt
+            isSameLogEntry(logged, entry)
         }
         if !alreadyLogged {
             try logStore.append(entry)
         }
+    }
+
+    private func isSameLogEntry(_ logged: RunLogEntry, _ entry: RunLogEntry) -> Bool {
+        logged.eventId == entry.eventId
+            && logged.tool == entry.tool
+            && logged.status == entry.status
+            && abs(logged.startedAt.timeIntervalSince(entry.startedAt)) < 1
     }
 
     private func updateQuotaState(from entry: RunLogEntry) throws {

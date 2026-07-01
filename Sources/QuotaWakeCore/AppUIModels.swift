@@ -191,7 +191,7 @@ public enum QuotaWakeUIStateBuilder {
             panes: SettingsPaneID.allCases,
             appVersionText: "Version \(appVersion)",
             launchAtLoginText: settings.background.launchAtLoginEnabled ? "On" : "Off",
-            backgroundText: settings.background.launchAtLoginEnabled ? "Session readiness on" : "Session readiness off",
+            backgroundText: backgroundText(settings: settings),
             readinessSummary: readinessSummary(settings.readiness),
             nextResetText: nextResetText(providerStates),
             confidenceText: confidenceSummary(providerStates),
@@ -308,6 +308,14 @@ public enum QuotaWakeUIStateBuilder {
             return ("Setup needed", "Review CLI paths for enabled tools.", .warning)
         }
 
+        if !settings.background.launchAtLoginEnabled {
+            return ("Paused", "Background readiness is off.", .neutral)
+        }
+
+        if settings.readiness.paused {
+            return ("Paused", "Background readiness is paused.", .neutral)
+        }
+
         if let latestLog, latestLog.status != .sent, !isQuotaObservationLog(latestLog) {
             return ("Last run failed", latestLog.errorSummary ?? statusText(latestLog.status), .error)
         }
@@ -326,6 +334,12 @@ public enum QuotaWakeUIStateBuilder {
     private static func readinessText(settings: AppSettings) -> String {
         guard settings.firstRunCompleted else {
             return "Waiting for quota window signal"
+        }
+        if !settings.background.launchAtLoginEnabled {
+            return "Background readiness off"
+        }
+        if settings.readiness.paused {
+            return "Window readiness paused"
         }
         return "Window readiness enabled"
     }
@@ -769,7 +783,15 @@ public enum QuotaWakeUIStateBuilder {
 
     private static func readinessSummary(_ readiness: WindowReadinessSettings) -> String {
         let activity = readiness.activeOnly ? "Active use" : "Activity gate off"
-        return "\(activity), idle after \(readiness.idleThresholdSeconds)s, cooldown \(readiness.minimumSendCooldownMinutes)m, \(resetModeText(readiness.resetEstimationMode))"
+        let prefix = readiness.paused ? "Paused, \(activity.lowercased())" : activity
+        return "\(prefix), idle after \(readiness.idleThresholdSeconds)s, cooldown \(readiness.minimumSendCooldownMinutes)m, \(resetModeText(readiness.resetEstimationMode))"
+    }
+
+    private static func backgroundText(settings: AppSettings) -> String {
+        if settings.readiness.paused {
+            return "Session readiness paused"
+        }
+        return settings.background.launchAtLoginEnabled ? "Session readiness on" : "Session readiness off"
     }
 
     private static func confidenceText(_ confidence: QuotaWindowConfidence) -> String {
