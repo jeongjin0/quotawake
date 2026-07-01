@@ -449,8 +449,6 @@ final class QuotaWakeAppModel: ObservableObject {
 }
 
 final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
-    private static let statusItemImageResourceName = "QuotaWakeStatusTemplate"
-
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var settingsWindow: NSWindow?
@@ -496,12 +494,11 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         model.startResetAwarePoller()
         #endif
 
-        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.autosaveName = "QuotaWakeStatusItem"
+        let statusItem = NSStatusBar.system.statusItem(withLength: 44)
         if let button = statusItem.button {
-            button.image = Self.makeStatusItemImage()
-            button.imagePosition = .imageOnly
-            button.title = ""
+            button.image = nil
+            button.imagePosition = .noImage
+            button.title = "QW"
             button.alignment = .center
             button.toolTip = "QuotaWake"
             button.target = self
@@ -538,23 +535,6 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
             runNormalLaunchQA(config: normalLaunchQAConfig, model: model)
         }
         #endif
-    }
-
-    private static func makeStatusItemImage() -> NSImage? {
-        let image: NSImage?
-        if let url = Bundle.main.url(
-            forResource: statusItemImageResourceName,
-            withExtension: "png"
-        ) {
-            image = NSImage(contentsOf: url)
-        } else {
-            image = NSImage(systemSymbolName: "moon.fill", accessibilityDescription: "QuotaWake")
-        }
-
-        _ = image?.setName(NSImage.Name(statusItemImageResourceName))
-        image?.isTemplate = true
-        image?.size = NSSize(width: 18, height: 18)
-        return image
     }
 
     @MainActor

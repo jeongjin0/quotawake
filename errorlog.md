@@ -22,3 +22,17 @@
   - Verified `QW` appears in the macOS menu bar.
 - Follow-up:
   - Launch-at-login may need to be re-enabled once because the main app bundle ID changed.
+
+## 2026-07-02 - QuotaWake menu bar item hidden again for menubar bundle ID
+
+- Symptom: QuotaWake was running and had an enabled System Settings menu bar item, but no readable QuotaWake item appeared in the menu bar.
+- Diagnosis:
+  - Normal-launch QA showed `statusItemTitle="QW"` and no status image dependency.
+  - Accessibility reported the `com.jeongjin.quotawake.menubar` status item as present, enabled, and named `QW`, but its frame was in the clock/right-edge area instead of the app status-item cluster.
+  - A minimal AppKit status item and a QuotaWake probe with bundle ID `com.jeongjin.quotawake.menubar.probe` both appeared normally in the menu bar.
+  - Removing duplicate LaunchServices app registrations, toggling System Settings menu bar items, resetting Background Task Management, and using the Control Center reset UI did not restore the corrupted `com.jeongjin.quotawake.menubar` placement.
+- Fix:
+  - Kept the status item text-only as `QW` with fixed width.
+  - Changed the app bundle ID to `com.jeongjin.quotawake.agentitem` and used Developer ID signing for the installed local app to escape the corrupted ad-hoc macOS menu bar state attached to `com.jeongjin.quotawake.menubar`.
+- Follow-up:
+  - Launch-at-login may need to be re-enabled once because the main app bundle ID changed.
