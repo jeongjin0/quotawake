@@ -72,7 +72,7 @@ cat > "${CONTENTS_DIR}/Info.plist" <<PLIST
   <key>CFBundleExecutable</key>
   <string>${APP_NAME}</string>
   <key>CFBundleIdentifier</key>
-  <string>com.jeongjin.quotawake.menubar</string>
+  <string>com.jeongjin.quotawake.agentitem</string>
   <key>CFBundleIconFile</key>
   <string>${APP_ICON_NAME}</string>
   <key>CFBundleInfoDictionaryVersion</key>

@@ -67,7 +67,7 @@ lightweight background utility:
 
 Recommended app identifiers:
 
-- Main app bundle ID: `com.jeongjin.quotawake.menubar`.
+- Main app bundle ID: `com.jeongjin.quotawake.agentitem`.
 - Optional worker/helper label: `com.jeongjin.quotawake.worker`.
 
 ### Menu Bar Popover

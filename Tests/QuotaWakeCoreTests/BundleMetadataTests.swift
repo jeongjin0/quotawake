@@ -4,7 +4,7 @@ import XCTest
 final class BundleMetadataTests: XCTestCase {
     func testValidMetadataPassesValidation() throws {
         let metadata = BundleMetadata(
-            bundleIdentifier: "com.jeongjin.quotawake.menubar",
+            bundleIdentifier: "com.jeongjin.quotawake.agentitem",
             minimumSystemVersion: "13.0",
             bundleName: "QuotaWake",
             executableName: "QuotaWake",
@@ -30,7 +30,7 @@ final class BundleMetadataTests: XCTestCase {
 
     func testMinimumSystemVersionBelowThirteenIsRejected() {
         let metadata = BundleMetadata(
-            bundleIdentifier: "com.jeongjin.quotawake.menubar",
+            bundleIdentifier: "com.jeongjin.quotawake.agentitem",
             minimumSystemVersion: "12.6",
             bundleName: "QuotaWake",
             executableName: "QuotaWake",
@@ -44,7 +44,7 @@ final class BundleMetadataTests: XCTestCase {
 
     func testEmptyBundleNameIsRejected() {
         let metadata = BundleMetadata(
-            bundleIdentifier: "com.jeongjin.quotawake.menubar",
+            bundleIdentifier: "com.jeongjin.quotawake.agentitem",
             minimumSystemVersion: "13.0",
             bundleName: "  ",
             executableName: "QuotaWake",
@@ -58,7 +58,7 @@ final class BundleMetadataTests: XCTestCase {
 
     func testAgentApplicationFlagMustBeTrue() {
         let metadata = BundleMetadata(
-            bundleIdentifier: "com.jeongjin.quotawake.menubar",
+            bundleIdentifier: "com.jeongjin.quotawake.agentitem",
             minimumSystemVersion: "13.0",
             bundleName: "QuotaWake",
             executableName: "QuotaWake",
