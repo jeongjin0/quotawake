@@ -230,6 +230,12 @@ final class QuotaWakeAppModel: ObservableObject {
         saveSettings()
     }
 
+    func setReadinessPaused(_ paused: Bool) {
+        settings.readiness.paused = paused
+        statusMessage = paused ? "Background readiness paused." : "Background readiness resumed."
+        saveSettings()
+    }
+
     func observeLastResult() {
         guard !isRunning else {
             return
@@ -512,6 +518,12 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
             rootView: QuotaWakePopoverView(
                 model: model,
                 openSettings: { [weak self] in self?.showSettings() },
+                toggleReadinessPaused: { [weak model] in
+                    guard let model else {
+                        return
+                    }
+                    model.setReadinessPaused(!model.settings.readiness.paused)
+                },
                 quit: { NSApp.terminate(nil) }
             )
         )
@@ -2280,6 +2292,21 @@ struct GeneralPane: View {
                 }
                 SettingsDivider()
                 SettingsControlRow(
+                    label: "Background readiness",
+                    detail: "Pause automatic quota window readiness without changing manual actions."
+                ) {
+                    Toggle(
+                        "Background readiness",
+                        isOn: Binding(
+                            get: { !model.settings.readiness.paused },
+                            set: { model.setReadinessPaused(!$0) }
+                        )
+                    )
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
+                SettingsDivider()
+                SettingsControlRow(
                     label: "Manual updates",
                     detail: "Check the release page for a signed DMG."
                 ) {
@@ -2424,6 +2451,21 @@ struct ReadinessPane: View {
                 SettingsValueRow(label: "Next reset", value: model.settingsState.nextResetText)
                 SettingsDivider()
                 SettingsValueRow(label: "Confidence", value: model.settingsState.confidenceText)
+                SettingsDivider()
+                SettingsControlRow(
+                    label: "Background readiness",
+                    detail: "Automatic readiness pauses while this is off."
+                ) {
+                    Toggle(
+                        "Background readiness",
+                        isOn: Binding(
+                            get: { !model.settings.readiness.paused },
+                            set: { model.setReadinessPaused(!$0) }
+                        )
+                    )
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
             }
 
             SettingsSection("Usage window scheduling") {

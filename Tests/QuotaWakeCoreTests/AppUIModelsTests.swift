@@ -25,6 +25,21 @@ final class AppUIModelsTests: XCTestCase {
 
         var readySettings = AppSettings.default
         readySettings.firstRunCompleted = true
+        readySettings.background.launchAtLoginEnabled = true
+
+        var backgroundOffSettings = readySettings
+        backgroundOffSettings.background.launchAtLoginEnabled = false
+        let backgroundOff = QuotaWakeUIStateBuilder.makePopoverState(
+            settings: backgroundOffSettings,
+            logs: [],
+            resolvedCommands: foundCommands,
+            quotaStates: [quotaWindow(tool: .claude, confidence: .exactReset, resetAt: now)],
+            now: now,
+            calendar: calendar
+        )
+        XCTAssertEqual(backgroundOff.statusTitle, "Paused")
+        XCTAssertEqual(backgroundOff.statusDetail, "Background readiness is off.")
+        XCTAssertEqual(backgroundOff.readinessText, "Background readiness off")
 
         let ready = QuotaWakeUIStateBuilder.makePopoverState(
             settings: readySettings,
@@ -43,6 +58,22 @@ final class AppUIModelsTests: XCTestCase {
         XCTAssertEqual(ready.providerStates.first { $0.tool == .claude }?.resetCountdownText, "Due now")
         XCTAssertEqual(ready.runNowTitle, "Send")
         XCTAssertTrue(ready.canRunNow)
+
+        var pausedSettings = readySettings
+        pausedSettings.readiness.paused = true
+        let paused = QuotaWakeUIStateBuilder.makePopoverState(
+            settings: pausedSettings,
+            logs: [],
+            resolvedCommands: foundCommands,
+            quotaStates: [quotaWindow(tool: .claude, confidence: .exactReset, resetAt: now)],
+            now: now,
+            calendar: calendar
+        )
+        XCTAssertEqual(paused.statusTitle, "Paused")
+        XCTAssertEqual(paused.statusTone, .neutral)
+        XCTAssertEqual(paused.readinessSummaryText, "Window readiness paused · Active-use gate on")
+        XCTAssertEqual(paused.readinessText, "Window readiness paused")
+        XCTAssertTrue(paused.canRunNow)
 
         let failed = QuotaWakeUIStateBuilder.makePopoverState(
             settings: readySettings,
@@ -172,6 +203,17 @@ final class AppUIModelsTests: XCTestCase {
         XCTAssertEqual(state.promptPreview, "hi")
         XCTAssertEqual(state.logRows.first?.statusText, "sent")
 
+        settings.readiness.paused = true
+        let paused = QuotaWakeUIStateBuilder.makeSettingsState(
+            settings: settings,
+            logs: [],
+            resolvedCommands: [command(tool: .claude, status: .found, path: "/usr/local/bin/claude")],
+            appVersion: "0.0.0",
+            calendar: calendar
+        )
+        XCTAssertEqual(paused.backgroundText, "Session readiness paused")
+        XCTAssertEqual(paused.readinessSummary, "Paused, active use, idle after 180s, cooldown 45m, local signals only")
+
         let skipped = QuotaWakeUIStateBuilder.makeSettingsState(
             settings: settings,
             logs: [RunLogEntry(
@@ -204,6 +246,7 @@ final class AppUIModelsTests: XCTestCase {
         let now = date("2026-06-29T00:00:00Z")
         var settings = AppSettings.default
         settings.firstRunCompleted = true
+        settings.background.launchAtLoginEnabled = true
         let commands = [
             command(tool: .claude, status: .found, path: "/usr/local/bin/claude"),
             command(tool: .codex, status: .found, path: "/usr/local/bin/codex")

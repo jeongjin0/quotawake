@@ -5,6 +5,7 @@ import SwiftUI
 struct QuotaWakePopoverView: View {
     @ObservedObject var model: QuotaWakeAppModel
     let openSettings: () -> Void
+    var toggleReadinessPaused: () -> Void = {}
     let quit: () -> Void
     var showAbout: () -> Void = {
         NSApp.orderFrontStandardAboutPanel(nil)
@@ -42,6 +43,9 @@ struct QuotaWakePopoverView: View {
 
             PopoverMenuFooter(
                 reload: model.observeLastResult,
+                pauseTitle: model.settings.readiness.paused ? "Resume" : "Pause",
+                pauseSystemImage: model.settings.readiness.paused ? "play.circle" : "pause.circle",
+                togglePause: toggleReadinessPaused,
                 openSettings: openSettings,
                 quit: quit
             )

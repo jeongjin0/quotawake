@@ -312,9 +312,12 @@ struct ActivityRow: View {
     }
 }
 
-/// v2 horizontal footer: Reload · Settings … Quit.
+/// v2 horizontal footer: Reload · Pause/Resume · Settings … Quit.
 struct PopoverMenuFooter: View {
     let reload: () -> Void
+    let pauseTitle: String
+    let pauseSystemImage: String
+    let togglePause: () -> Void
     let openSettings: () -> Void
     let quit: () -> Void
 
@@ -327,6 +330,11 @@ struct PopoverMenuFooter: View {
             HStack(spacing: 2) {
                 Button(action: reload) {
                     menuLabel("Reload", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(QWFooterChipStyle())
+
+                Button(action: togglePause) {
+                    menuLabel(pauseTitle, systemImage: pauseSystemImage)
                 }
                 .buttonStyle(QWFooterChipStyle())
 

@@ -120,21 +120,52 @@ public enum ResetEstimationMode: String, Codable, Equatable, Sendable {
 }
 
 public struct WindowReadinessSettings: Codable, Equatable, Sendable {
+    public var paused: Bool
     public var activeOnly: Bool
     public var idleThresholdSeconds: Int
     public var minimumSendCooldownMinutes: Int
     public var resetEstimationMode: ResetEstimationMode
 
     public init(
+        paused: Bool = false,
         activeOnly: Bool = true,
         idleThresholdSeconds: Int = 300,
         minimumSendCooldownMinutes: Int = 30,
         resetEstimationMode: ResetEstimationMode = .localSignalsOnly
     ) {
+        self.paused = paused
         self.activeOnly = activeOnly
         self.idleThresholdSeconds = max(0, idleThresholdSeconds)
         self.minimumSendCooldownMinutes = max(0, minimumSendCooldownMinutes)
         self.resetEstimationMode = resetEstimationMode
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case paused
+        case activeOnly
+        case idleThresholdSeconds
+        case minimumSendCooldownMinutes
+        case resetEstimationMode
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            paused: try container.decodeIfPresent(Bool.self, forKey: .paused) ?? false,
+            activeOnly: try container.decodeIfPresent(Bool.self, forKey: .activeOnly) ?? true,
+            idleThresholdSeconds: try container.decodeIfPresent(Int.self, forKey: .idleThresholdSeconds) ?? 300,
+            minimumSendCooldownMinutes: try container.decodeIfPresent(Int.self, forKey: .minimumSendCooldownMinutes) ?? 30,
+            resetEstimationMode: try container.decodeIfPresent(ResetEstimationMode.self, forKey: .resetEstimationMode) ?? .localSignalsOnly
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(paused, forKey: .paused)
+        try container.encode(activeOnly, forKey: .activeOnly)
+        try container.encode(idleThresholdSeconds, forKey: .idleThresholdSeconds)
+        try container.encode(minimumSendCooldownMinutes, forKey: .minimumSendCooldownMinutes)
+        try container.encode(resetEstimationMode, forKey: .resetEstimationMode)
     }
 }
 
@@ -176,7 +207,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
         case prompt
         case tools
         case readiness
+        case schedule
         case background
+    }
+
+    private struct LegacyScheduleSettings: Decodable {
+        var paused: Bool?
     }
 
     public init(from decoder: Decoder) throws {
@@ -186,8 +222,14 @@ public struct AppSettings: Codable, Equatable, Sendable {
         firstRunCompleted = try container.decodeIfPresent(Bool.self, forKey: .firstRunCompleted) ?? false
         prompt = try container.decodeIfPresent(String.self, forKey: .prompt) ?? "hi"
         tools = try container.decodeIfPresent(ToolSettingsSet.self, forKey: .tools) ?? ToolSettingsSet()
-        readiness = try container.decodeIfPresent(WindowReadinessSettings.self, forKey: .readiness)
+        var decodedReadiness = try container.decodeIfPresent(WindowReadinessSettings.self, forKey: .readiness)
             ?? WindowReadinessSettings()
+        if decodedVersion < 2,
+           let legacySchedule = try container.decodeIfPresent(LegacyScheduleSettings.self, forKey: .schedule),
+           let paused = legacySchedule.paused {
+            decodedReadiness.paused = paused
+        }
+        readiness = decodedReadiness
         background = try container.decodeIfPresent(BackgroundSettings.self, forKey: .background)
             ?? BackgroundSettings()
         schedule = Schedule()

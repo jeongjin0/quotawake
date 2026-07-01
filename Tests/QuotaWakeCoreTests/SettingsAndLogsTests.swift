@@ -28,6 +28,7 @@ final class SettingsAndLogsTests: XCTestCase {
         XCTAssertFalse(settings.wake.enabled)
         XCTAssertFalse(settings.wake.helperInstalled)
         XCTAssertTrue(settings.readiness.activeOnly)
+        XCTAssertFalse(settings.readiness.paused)
         XCTAssertEqual(settings.readiness.idleThresholdSeconds, 300)
         XCTAssertEqual(settings.readiness.minimumSendCooldownMinutes, 30)
         XCTAssertEqual(settings.readiness.resetEstimationMode, .localSignalsOnly)
@@ -47,9 +48,21 @@ final class SettingsAndLogsTests: XCTestCase {
         XCTAssertTrue(settings.schedule.weekdays.isEmpty)
         XCTAssertTrue(settings.schedule.times.isEmpty)
         XCTAssertTrue(settings.schedule.paused)
+        XCTAssertFalse(settings.readiness.paused)
         XCTAssertFalse(settings.wake.enabled)
         XCTAssertFalse(settings.wake.helperInstalled)
         XCTAssertNil(settings.wake.lastRequestedWake)
+    }
+
+    func testLegacyPausedScheduleMigratesToPausedReadiness() throws {
+        let data = Self.legacyPausedSettingsFixture.data(using: .utf8)!
+
+        let settings = try JSONDecoder().decode(AppSettings.self, from: data)
+
+        XCTAssertEqual(settings.schemaVersion, 2)
+        XCTAssertTrue(settings.firstRunCompleted)
+        XCTAssertTrue(settings.readiness.paused)
+        XCTAssertTrue(settings.schedule.paused)
     }
 
     func testSettingsStoreMigratesLegacyFixtureAndSavesWithoutLegacyScheduleWakeKeys() throws {
@@ -228,6 +241,26 @@ final class SettingsAndLogsTests: XCTestCase {
         "helperInstalled": true,
         "lastRequestedWake": "2026-06-28T05:50:00Z"
       }
+    }
+    """
+
+    private static let legacyPausedSettingsFixture = """
+    {
+      "schemaVersion": 1,
+      "firstRunCompleted": true,
+      "prompt": "hi",
+      "tools": {
+        "claude": { "enabled": true },
+        "codex": { "enabled": true }
+      },
+      "schedule": {
+        "paused": true,
+        "weekdays": [1, 2, 3, 4, 5, 6, 7],
+        "times": [{ "hour": 6, "minute": 0 }],
+        "missedRunGraceMinutes": 15
+      },
+      "background": { "launchAtLoginEnabled": false },
+      "wake": { "enabled": false, "helperInstalled": false, "leadMinutes": 10 }
     }
     """
 }

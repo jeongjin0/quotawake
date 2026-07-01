@@ -21,6 +21,7 @@ final class ResetAwareAppIntegrationTests: XCTestCase {
         settings.firstRunCompleted = true
         settings.tools.claude.enabled = false
         settings.tools.codex.enabled = true
+        settings.background.launchAtLoginEnabled = true
         settings.readiness.activeOnly = true
         settings.readiness.idleThresholdSeconds = 300
         try fixture.settingsStore.save(settings)
@@ -63,12 +64,125 @@ final class ResetAwareAppIntegrationTests: XCTestCase {
         XCTAssertEqual(logs.last?.skipReason, "idle")
     }
 
+    func testBackgroundReadinessOffTickDoesNotEvaluateActivityObserveOrSend() throws {
+        let fixture = try makeFixture()
+        var settings = AppSettings.default
+        settings.firstRunCompleted = true
+        settings.tools.claude.enabled = false
+        settings.tools.codex.enabled = true
+        settings.background.launchAtLoginEnabled = false
+        settings.readiness.paused = false
+        try fixture.settingsStore.save(settings)
+
+        let runner = RecordingToolRunner(results: [
+            .codex: Self.runEntry(status: .sent, timedOut: false, stdoutSummary: "ok")
+        ])
+        let activity = CountingActivityEvaluator(result: .active)
+        let poller = QuotaReadinessPoller(
+            paths: fixture.paths,
+            settingsStore: fixture.settingsStore,
+            logStore: fixture.logStore,
+            quotaStateStore: fixture.quotaStateStore,
+            commandsProvider: { [fixture.command] },
+            runner: runner,
+            activityEvaluator: activity,
+            quotaObserverProvider: { _, _ in
+                XCTFail("Disabled background readiness must not observe quota state")
+                return nil
+            },
+            now: { Self.now }
+        )
+
+        try poller.tick()
+
+        XCTAssertTrue(runner.requests.isEmpty)
+        XCTAssertEqual(activity.evaluateCount, 0)
+        XCTAssertTrue(try fixture.logStore.readAll().isEmpty)
+    }
+
+    func testPausedReadinessTickDoesNotEvaluateActivityObserveOrSend() throws {
+        let fixture = try makeFixture()
+        var settings = AppSettings.default
+        settings.firstRunCompleted = true
+        settings.tools.claude.enabled = false
+        settings.tools.codex.enabled = true
+        settings.background.launchAtLoginEnabled = true
+        settings.readiness.paused = true
+        try fixture.settingsStore.save(settings)
+
+        let runner = RecordingToolRunner(results: [
+            .codex: Self.runEntry(status: .sent, timedOut: false, stdoutSummary: "ok")
+        ])
+        let activity = CountingActivityEvaluator(result: .active)
+        let poller = QuotaReadinessPoller(
+            paths: fixture.paths,
+            settingsStore: fixture.settingsStore,
+            logStore: fixture.logStore,
+            quotaStateStore: fixture.quotaStateStore,
+            commandsProvider: { [fixture.command] },
+            runner: runner,
+            activityEvaluator: activity,
+            quotaObserverProvider: { _, _ in
+                XCTFail("Paused readiness must not observe quota state")
+                return nil
+            },
+            now: { Self.now }
+        )
+
+        try poller.tick()
+
+        XCTAssertTrue(runner.requests.isEmpty)
+        XCTAssertEqual(activity.evaluateCount, 0)
+        XCTAssertTrue(try fixture.logStore.readAll().isEmpty)
+    }
+
+    func testDueResetTickWritesOneToolRunnerLogEntry() throws {
+        let fixture = try makeFixture()
+        let executable = try makeFakeReadinessExecutable(name: "codex", in: fixture.binDirectory)
+        var settings = AppSettings.default
+        settings.firstRunCompleted = true
+        settings.tools.claude.enabled = false
+        settings.tools.codex.enabled = true
+        settings.background.launchAtLoginEnabled = true
+        settings.readiness.minimumSendCooldownMinutes = 0
+        try fixture.settingsStore.save(settings)
+        try fixture.quotaStateStore.save(QuotaWindowState(
+            tool: .codex,
+            source: .cliMessageParser,
+            confidence: .exactReset,
+            classification: .limitReached(resetAt: Self.now),
+            observedAt: Self.now.addingTimeInterval(-60),
+            resetAt: Self.now,
+            summary: "limit reset due"
+        ))
+
+        let runner = ToolRunner(logStore: fixture.logStore)
+        let poller = QuotaReadinessPoller(
+            paths: fixture.paths,
+            settingsStore: fixture.settingsStore,
+            logStore: fixture.logStore,
+            quotaStateStore: fixture.quotaStateStore,
+            commandsProvider: { [fixture.command(tool: .codex, executableURL: executable)] },
+            runner: runner,
+            activityEvaluator: SequenceActivityEvaluator([.active]),
+            now: { Self.now }
+        )
+
+        try poller.tick()
+
+        let logs = try fixture.logStore.readAll()
+        XCTAssertEqual(logs.count, 1)
+        XCTAssertEqual(logs.first?.status, .sent)
+        XCTAssertEqual(logs.first?.eventId, "reset-window-codex-2026-06-28T23:50:00Z")
+    }
+
     func testRapidTicksForSameResetWindowSendOnceThenLogDuplicateSkip() throws {
         let fixture = try makeFixture()
         var settings = AppSettings.default
         settings.firstRunCompleted = true
         settings.tools.claude.enabled = false
         settings.tools.codex.enabled = true
+        settings.background.launchAtLoginEnabled = true
         settings.readiness.activeOnly = true
         settings.readiness.minimumSendCooldownMinutes = 0
         try fixture.settingsStore.save(settings)
@@ -128,6 +242,7 @@ final class ResetAwareAppIntegrationTests: XCTestCase {
             settings.firstRunCompleted = true
             settings.tools.claude.enabled = false
             settings.tools.codex.enabled = true
+            settings.background.launchAtLoginEnabled = true
             settings.readiness.activeOnly = true
             settings.readiness.minimumSendCooldownMinutes = 0
             try fixture.settingsStore.save(settings)
@@ -183,6 +298,7 @@ final class ResetAwareAppIntegrationTests: XCTestCase {
         settings.firstRunCompleted = true
         settings.tools.codex.enabled = true
         settings.tools.claude.enabled = true
+        settings.background.launchAtLoginEnabled = true
         settings.readiness.resetEstimationMode = .localSignalsOnly
         try fixture.settingsStore.save(settings)
 
@@ -258,6 +374,7 @@ final class ResetAwareAppIntegrationTests: XCTestCase {
         settings.firstRunCompleted = true
         settings.tools.claude.enabled = false
         settings.tools.codex.enabled = true
+        settings.background.launchAtLoginEnabled = true
         settings.readiness.activeOnly = true
         settings.readiness.idleThresholdSeconds = 900
         settings.readiness.minimumSendCooldownMinutes = 0
@@ -369,6 +486,19 @@ final class ResetAwareAppIntegrationTests: XCTestCase {
         return executable
     }
 
+    private func makeFakeReadinessExecutable(name: String, in directory: URL) throws -> URL {
+        let executable = directory.appendingPathComponent(name, isDirectory: false)
+        let script = """
+        #!/bin/sh
+        printf 'ok\\n'
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        #if canImport(Darwin)
+        XCTAssertEqual(chmod(executable.path, 0o755), 0)
+        #endif
+        return executable
+    }
+
     private static func date(_ value: String) -> Date {
         iso.date(from: value)!
     }
@@ -462,6 +592,20 @@ private final class SequenceActivityEvaluator: ActivityEvaluating {
             return .active
         }
         return values.removeFirst()
+    }
+}
+
+private final class CountingActivityEvaluator: ActivityEvaluating {
+    private let result: ActivityGateResult
+    private(set) var evaluateCount = 0
+
+    init(result: ActivityGateResult) {
+        self.result = result
+    }
+
+    func evaluate() -> ActivityGateResult {
+        evaluateCount += 1
+        return result
     }
 }
 
