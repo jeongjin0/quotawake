@@ -36,6 +36,10 @@ public struct QuotaWindowState: Codable, Equatable, Sendable {
     public let usedPercent: Double?
     public let remainingPercent: Double?
     public let windowLabel: String?
+    public let weeklyUsedPercent: Double?
+    public let weeklyRemainingPercent: Double?
+    public let weeklyResetAt: Date?
+    public let weeklyWindowLabel: String?
     public let summary: String
 
     public init(
@@ -48,6 +52,10 @@ public struct QuotaWindowState: Codable, Equatable, Sendable {
         usedPercent: Double? = nil,
         remainingPercent: Double? = nil,
         windowLabel: String? = nil,
+        weeklyUsedPercent: Double? = nil,
+        weeklyRemainingPercent: Double? = nil,
+        weeklyResetAt: Date? = nil,
+        weeklyWindowLabel: String? = nil,
         summary: String
     ) {
         self.tool = tool
@@ -59,6 +67,10 @@ public struct QuotaWindowState: Codable, Equatable, Sendable {
         self.usedPercent = usedPercent
         self.remainingPercent = remainingPercent
         self.windowLabel = windowLabel
+        self.weeklyUsedPercent = weeklyUsedPercent
+        self.weeklyRemainingPercent = weeklyRemainingPercent
+        self.weeklyResetAt = weeklyResetAt
+        self.weeklyWindowLabel = weeklyWindowLabel
         self.summary = QuotaWindowSanitizer.sanitize(summary)
     }
 

@@ -12,6 +12,8 @@ esac
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="QuotaWake"
+APP_ICON_NAME="QuotaWake"
+APP_ICON_FILE="${APP_ICON_NAME}.icns"
 APP_DIR="${ROOT_DIR}/${APP_NAME}.app"
 CONTENTS_DIR="${APP_DIR}/Contents"
 MACOS_DIR="${CONTENTS_DIR}/MacOS"
@@ -49,6 +51,10 @@ chmod 755 "${MACOS_DIR}/${APP_NAME}"
 if [[ -d "${ROOT_DIR}/Resources" ]]; then
   ditto "${ROOT_DIR}/Resources" "${RESOURCES_DIR}"
 fi
+if [[ ! -s "${RESOURCES_DIR}/${APP_ICON_FILE}" ]]; then
+  echo "Missing app icon resource: ${RESOURCES_DIR}/${APP_ICON_FILE}" >&2
+  exit 66
+fi
 
 UPDATE_METADATA=""
 if [[ -n "${RELEASES_LATEST_API_URL}" ]]; then
@@ -66,7 +72,9 @@ cat > "${CONTENTS_DIR}/Info.plist" <<PLIST
   <key>CFBundleExecutable</key>
   <string>${APP_NAME}</string>
   <key>CFBundleIdentifier</key>
-  <string>com.jeongjin.quotawake</string>
+  <string>com.jeongjin.quotawake.menubar</string>
+  <key>CFBundleIconFile</key>
+  <string>${APP_ICON_NAME}</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>

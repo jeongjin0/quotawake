@@ -443,6 +443,8 @@ final class QuotaWakeAppModel: ObservableObject {
 }
 
 final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
+    private static let statusItemImageResourceName = "QuotaWakeStatusTemplate"
+
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var settingsWindow: NSWindow?
@@ -480,12 +482,27 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         let model = QuotaWakeAppModel()
         #endif
         self.model = model
+        #if DEBUG
+        if normalLaunchQAConfig == nil {
+            model.startResetAwarePoller()
+        }
+        #else
         model.startResetAwarePoller()
+        #endif
 
-        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "QW"
-        statusItem.button?.target = self
-        statusItem.button?.action = #selector(togglePopover(_:))
+        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem.autosaveName = "QuotaWakeStatusItem"
+        if let button = statusItem.button {
+            button.image = Self.makeStatusItemImage()
+            button.imagePosition = .imageOnly
+            button.title = ""
+            button.alignment = .center
+            button.toolTip = "QuotaWake"
+            button.target = self
+            button.action = #selector(togglePopover(_:))
+            button.setAccessibilityLabel("QuotaWake")
+        }
+        statusItem.isVisible = true
         self.statusItem = statusItem
 
         let popover = NSPopover()
@@ -509,6 +526,32 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
             runNormalLaunchQA(config: normalLaunchQAConfig, model: model)
         }
         #endif
+    }
+
+    private static func makeStatusItemImage() -> NSImage? {
+        let image: NSImage?
+        if let url = Bundle.main.url(
+            forResource: statusItemImageResourceName,
+            withExtension: "png"
+        ) {
+            image = NSImage(contentsOf: url)
+        } else {
+            image = NSImage(systemSymbolName: "moon.fill", accessibilityDescription: "QuotaWake")
+        }
+
+        _ = image?.setName(NSImage.Name(statusItemImageResourceName))
+        image?.isTemplate = true
+        image?.size = NSSize(width: 18, height: 18)
+        return image
+    }
+
+    @MainActor
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // Re-opening the app from Finder should surface the menu-bar popover.
+        if settingsWindow?.isVisible != true {
+            togglePopover(nil)
+        }
+        return true
     }
 
     @MainActor
@@ -625,9 +668,16 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
             }
 
             do {
+                let statusButton = self.statusItem?.button
+                let statusImage = statusButton?.image
                 try config.writeEvidence(
-                    statusItemReady: self.statusItem?.button != nil,
-                    statusItemTitle: self.statusItem?.button?.title ?? "",
+                    statusItemReady: statusButton != nil,
+                    statusItemTitle: statusButton?.title ?? "",
+                    statusItemHasImage: statusImage != nil,
+                    statusItemImageIsTemplate: statusImage?.isTemplate ?? false,
+                    statusItemImageSize: statusImage?.size ?? .zero,
+                    statusItemImageName: statusImage?.name() ?? "",
+                    statusItemImage: statusImage,
                     popoverShown: self.popover?.isShown ?? false,
                     popoverSize: self.popover?.contentSize ?? .zero,
                     settingsWindowShown: self.settingsWindow?.isVisible ?? false,
@@ -1413,6 +1463,10 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
                     usedPercent: 100,
                     remainingPercent: 0,
                     windowLabel: "5h",
+                    weeklyUsedPercent: tool == .codex ? 58 : 71,
+                    weeklyRemainingPercent: tool == .codex ? 42 : 29,
+                    weeklyResetAt: now.addingTimeInterval((tool == .codex ? 4 : 3) * 86_400 + 5 * 3_600),
+                    weeklyWindowLabel: "Weekly",
                     summary: "limit reset observed locally; next reset candidate is not due yet"
                 )
             case "migrated-old-settings":
@@ -1433,9 +1487,13 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
                     classification: .limitReached(resetAt: resetAt),
                     observedAt: now,
                     resetAt: resetAt,
-                    usedPercent: 100,
-                    remainingPercent: 0,
+                    usedPercent: tool == .codex ? 73 : 42,
+                    remainingPercent: tool == .codex ? 27 : 58,
                     windowLabel: "5h",
+                    weeklyUsedPercent: tool == .codex ? 49 : 38,
+                    weeklyRemainingPercent: tool == .codex ? 51 : 62,
+                    weeklyResetAt: now.addingTimeInterval((tool == .codex ? 5 : 4) * 86_400),
+                    weeklyWindowLabel: "Weekly",
                     summary: "reset candidate due from fake local CLI limit output"
                 )
             }
@@ -1553,10 +1611,25 @@ enum QWTheme {
     static let warning = Color(nsColor: .systemOrange)
     static let error = Color(nsColor: .systemRed)
     static let info = Color(nsColor: .systemBlue)
-    static let claudeAccent = Color(nsColor: .systemOrange)
-    static let claudeWash = Color(nsColor: .systemOrange).opacity(0.12)
-    static let codexAccent = Color(nsColor: .systemBlue)
-    static let codexWash = Color(nsColor: .systemBlue).opacity(0.10)
+    // Provider identity accents follow the Redesign v2 marks.
+    static let claudeAccent = Color(red: 0.851, green: 0.467, blue: 0.341) // #D97757
+    static let claudeWash = Color(red: 0.851, green: 0.467, blue: 0.341).opacity(0.12)
+    static let codexAccent = Color(red: 0.051, green: 0.051, blue: 0.051) // #0D0D0D
+    static let codexWash = Color(red: 0.051, green: 0.051, blue: 0.051).opacity(0.08)
+
+    // Redesign v2 status/pill palette (popover renders in fixed light mode).
+    static let pillGreen = Color(red: 0.114, green: 0.541, blue: 0.263) // #1d8a43
+    static let pillOrange = Color(red: 0.784, green: 0.388, blue: 0.102) // #c8631a
+    static let pillBlue = Color(red: 0.039, green: 0.435, blue: 0.839) // #0a6fd6
+    static let pillRed = Color(red: 0.824, green: 0.231, blue: 0.188) // #d23b30
+
+    // Neutral translucent card surface used by provider cards in the popover.
+    static let cardFill = Color.white
+    static let cardStroke = Color.black.opacity(0.10)
+    static let popoverInk = Color.black.opacity(0.86)
+    static let popoverInkSecondary = Color.black.opacity(0.5)
+    static let popoverInkTertiary = Color.black.opacity(0.4)
+    static let popoverHairline = Color.black.opacity(0.08)
 }
 
 enum QWSettingsTheme {
@@ -2815,6 +2888,11 @@ struct NormalLaunchQAConfig {
     func writeEvidence(
         statusItemReady: Bool,
         statusItemTitle: String,
+        statusItemHasImage: Bool,
+        statusItemImageIsTemplate: Bool,
+        statusItemImageSize: NSSize,
+        statusItemImageName: String,
+        statusItemImage: NSImage?,
         popoverShown: Bool,
         popoverSize: NSSize,
         settingsWindowShown: Bool,
@@ -2827,6 +2905,11 @@ struct NormalLaunchQAConfig {
             "normalLaunch": true,
             "statusItemReady": statusItemReady,
             "statusItemTitle": statusItemTitle,
+            "statusItemHasImage": statusItemHasImage,
+            "statusItemImageIsTemplate": statusItemImageIsTemplate,
+            "statusItemImageName": statusItemImageName,
+            "statusItemImageWidth": Int(statusItemImageSize.width),
+            "statusItemImageHeight": Int(statusItemImageSize.height),
             "popoverShown": popoverShown,
             "popoverWidth": Int(popoverSize.width),
             "popoverHeight": Int(popoverSize.height),
@@ -2838,6 +2921,12 @@ struct NormalLaunchQAConfig {
         ]
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: evidenceDirectory.appendingPathComponent("normal-launch.json"), options: [.atomic])
+        if let statusItemImage {
+            try Self.writePNG(
+                image: statusItemImage,
+                to: evidenceDirectory.appendingPathComponent("status-item-image.png")
+            )
+        }
         try Self.copyLogs(from: paths.logsDirectory, to: evidenceDirectory.appendingPathComponent("normal-launch.jsonl"))
         try Self.writeRunSummary(
             logs: storedLogs,
@@ -2868,6 +2957,17 @@ struct NormalLaunchQAConfig {
         """
         try script.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+    }
+
+    private static func writePNG(image: NSImage, to url: URL) throws {
+        guard
+            let tiffData = image.tiffRepresentation,
+            let bitmap = NSBitmapImageRep(data: tiffData),
+            let data = bitmap.representation(using: .png, properties: [:])
+        else {
+            throw UIQAError.pngCreationFailed
+        }
+        try data.write(to: url, options: [.atomic])
     }
 
     private static func copyLogs(from logsDirectory: URL, to outputURL: URL) throws {

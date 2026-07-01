@@ -104,30 +104,43 @@ All spacing derives from a 4pt base.
 
 ### Provider Quota Card
 
-- **Structure**: provider identity mark or monogram, provider name, semantic status text/glyph, 5h quota progress bar, used/left labels, reset countdown, and conditional diagnostic detail.
-- **Variants**: Claude warm identity accent, Codex cool identity accent, unavailable, observed, stale, disabled.
-- **Spacing**: `space3` padding, `space2` row gaps, `space1` gaps inside compact metadata lines.
-- **Surface**: direct child of the glass popover shell with `popoverGlassStroke`; use a single subtle accent rail, mark fill, or chip, not a nested colored panel.
-- **States**: status copy and glyph change with state; identity accent stays stable so status never relies on color alone.
-- **Accessibility**: provider name, quota, reset countdown, diagnostics, and status are visible text or accessible labels.
-- **Diagnostics**: confidence/source detail is hidden in normal success/observed states and appears only for warning/error states where it explains uncertainty or blocking.
+- **Structure**: a single column card. Top row = provider identity mark and provider name. Below: a 5h quota-window section followed by a Weekly Limit section. Both quota-window sections use the same label/value/bar/reset-footnote rhythm so weekly is treated as a peer signal rather than a muted footer.
+- **Identity accents**: Claude `#D97757` (warm coral), Codex `#0D0D0D` (near-black). The accent appears only on the identity mark and bar fill — never as a card background wash.
+- **Variants**: per-window known / unknown. When a window has no local signal the bar renders a diagonal striped track; the 5h section shows "No local quota signal yet" with an inline `Observe` chip.
+- **Reset labels**: 5h and weekly reset countdowns are shown inside their own quota-window sections. Do not put an unlabeled countdown or next-due badge in the card header.
+- **Spacing**: `space3` padding, `space2`–`space3` row gaps, `space1` gaps inside compact metadata lines.
+- **Surface**: a neutral translucent white card (≈0.55 opacity for the next-due provider, ≈0.42 for others) on the glass popover shell with a hairline stroke; one card per provider, never nested colored panels.
+- **States**: identity accent stays stable so provider identity never relies on text alone.
+- **Accessibility**: provider name, 5h quota, weekly quota, reset countdowns, and status are visible text or accessible labels; the striped track is decorative and hidden from accessibility.
+- **Visibility**: the popover renders provider quota cards only for enabled tools whose CLI is detected and runnable. Missing, invalid, disabled, or broken tools are surfaced through the status pill and Settings tools pane, not as normal quota cards.
+
+### Weekly Limit Row
+
+- **Structure**: a peer quota-window readout at the bottom of each provider card — "Weekly limit" label, a percent value ("62% left" / "Unknown"), the same thin accent bar treatment as the 5h row, and its own "Resets in Xd" line when known.
+- **Source**: Codex's secondary rate-limit window and Claude's `/usage` "current week" line; both are best-effort and degrade to a striped "Unknown" track when no signal is present.
+- **Rules**: the weekly bar uses the provider accent and bar height consistently with the 5h window. Vertical placement and section labels separate the two windows, not a divider, reduced opacity, or smaller geometry.
+
+### Recent Activity
+
+- **Structure**: a small `RECENT ACTIVITY` section header with an "All logs" link, followed by up to three compact log rows (status dot, `HH:MM` time, provider, status text).
+- **States**: empty ("No readiness runs yet"); populated. The "All logs" link opens the Logs settings pane.
+- **Accessibility**: rows combine into a single readable label; status is carried by text, not the dot color alone.
 
 ### Popover Secondary Actions
 
-- **Structure**: compact secondary controls for manual provider actions when useful.
-- **Labels**: use `Send readiness now` and `Refresh quota` if these actions remain visible.
-- **Variants**: secondary, disabled, running.
-- **Spacing**: `space2` gaps, stable button widths when labels change.
-- **States**: disabled or hidden when the action is not meaningful for the current provider state.
+- **Structure**: per-context inline actions rather than a standalone button row. The unknown-quota state surfaces an inline `Observe` chip on the affected provider card; manual refresh lives as `Reload` in the footer.
+- **Variants**: inline chip (Observe), footer chip (Reload).
+- **States**: shown only when meaningful — `Observe` appears when a provider has no local quota signal.
 - **Accessibility**: labels are explicit and keyboard-focusable.
 
 ### Popover Menu Footer
 
-- **Structure**: bottom menu footer with separated full-width rows for Settings, About QuotaWake, and Quit.
-- **Variants**: normal row, destructive Quit row only when native menu styling supports it without visual noise.
-- **Spacing**: native menu row height, `space2` vertical grouping, divider above footer.
-- **States**: normal, hover/focus, disabled only when an action is temporarily unavailable.
-- **Accessibility**: footer actions must show visible text; do not hide Settings, About, or Quit behind icon-only controls.
+- **Structure**: a horizontal footer below a hairline divider. Reload and Settings are grouped at the leading edge; Quit sits at the trailing edge as a destructive (error-tinted) chip. Each item is icon + text (`↻ Reload`, `⚙ Settings`, `⏻ Quit`).
+- **Actions**: Reload refreshes the observed quota; Settings opens the settings window; Quit terminates the app.
+- **Variants**: normal chip, destructive Quit chip.
+- **Spacing**: compact chip padding, `space2` grouping, divider above footer.
+- **States**: normal, pressed, disabled only when an action is temporarily unavailable.
+- **Accessibility**: footer actions must show visible text; do not hide Reload, Settings, or Quit behind icon-only controls.
 
 ### Settings Pane
 
