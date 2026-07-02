@@ -374,7 +374,8 @@ struct GeneralPane: View {
                 PaneSeparator()
                 PaneControlRow(
                     label: "Manual updates",
-                    detail: "Check the release page for a signed DMG."
+                    detail: "Check the release page for a signed DMG.",
+                    placement: .below
                 ) {
                     HStack(spacing: 10) {
                         Button {
@@ -465,7 +466,8 @@ struct ToolsPane: View {
                     PaneSeparator()
                     PaneControlRow(
                         label: "Manual path",
-                        detail: "Optional override when auto-detection picks the wrong executable."
+                        detail: "Optional override when auto-detection picks the wrong executable.",
+                        placement: .below
                     ) {
                         TextField(
                             "Manual path",
@@ -478,7 +480,7 @@ struct ToolsPane: View {
                         .font(.system(size: 12))
                         .padding(.horizontal, 10)
                         .frame(height: 30)
-                        .frame(width: 280)
+                        .frame(maxWidth: .infinity)
                         .background(
                             RoundedRectangle(cornerRadius: 7, style: .continuous)
                                 .fill(QWSettingsTheme.input)
