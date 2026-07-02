@@ -15,6 +15,56 @@ final class ResetAwareAppIntegrationTests: XCTestCase {
         tempDirectories.removeAll()
     }
 
+    func testSendWithoutQuotaSignalPreservesObservedQuotaDisplayFields() throws {
+        let fixture = try makeFixture()
+        var settings = AppSettings.default
+        settings.firstRunCompleted = true
+        settings.tools.claude.enabled = false
+        settings.tools.codex.enabled = true
+        try fixture.settingsStore.save(settings)
+
+        let observedReset = Self.date("2026-06-29T05:30:00Z")
+        let weeklyReset = Self.date("2026-07-05T12:00:00Z")
+        try fixture.quotaStateStore.save(QuotaWindowState(
+            tool: .codex,
+            source: .codexLocalAppServer,
+            confidence: .observedLocalQuota,
+            classification: .limitReached(resetAt: observedReset),
+            observedAt: Self.now.addingTimeInterval(-120),
+            resetAt: observedReset,
+            usedPercent: 47,
+            remainingPercent: 53,
+            windowLabel: "5h",
+            weeklyUsedPercent: 16,
+            weeklyRemainingPercent: 84,
+            weeklyResetAt: weeklyReset,
+            weeklyWindowLabel: "Weekly",
+            summary: "codex local quota window observed"
+        ))
+
+        let runner = RecordingToolRunner(results: [
+            .codex: Self.runEntry(status: .sent, timedOut: false, stdoutSummary: "Hi! How can I help today?")
+        ])
+        let poller = QuotaReadinessPoller(
+            paths: fixture.paths,
+            settingsStore: fixture.settingsStore,
+            logStore: fixture.logStore,
+            quotaStateStore: fixture.quotaStateStore,
+            commandsProvider: { [fixture.command] },
+            runner: runner,
+            now: { Self.now }
+        )
+
+        try poller.sendNow()
+
+        let state = try XCTUnwrap(fixture.quotaStateStore.load(tool: .codex))
+        XCTAssertEqual(state.classification, .sent, "Fresh run outcome must win")
+        XCTAssertEqual(state.usedPercent, 47, "Signal-less send output must not clobber observed quota data")
+        XCTAssertEqual(state.weeklyUsedPercent, 16)
+        XCTAssertEqual(state.resetAt, observedReset)
+        XCTAssertEqual(state.weeklyResetAt, weeklyReset)
+    }
+
     func testSendNowLimitOutputUpdatesQuotaStateAndIdlePollSkipsWithoutExecutingProvider() throws {
         let fixture = try makeFixture()
         var settings = AppSettings.default
