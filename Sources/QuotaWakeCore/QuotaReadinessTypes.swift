@@ -105,6 +105,7 @@ public enum QuotaReadinessObserveReason: Equatable, Sendable {
     case unknownStrictMode
     case missingLastSuccessForEstimate
     case invalidQuotaState
+    case staleProviderState
 }
 
 public enum QuotaReadinessDecisionSource: String, Codable, Equatable, Sendable {

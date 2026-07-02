@@ -402,6 +402,8 @@ public final class QuotaReadinessPoller {
             return "missing_last_success_for_estimate"
         case .invalidQuotaState:
             return "invalid_quota_state"
+        case .staleProviderState:
+            return "stale_provider_state"
         }
     }
 

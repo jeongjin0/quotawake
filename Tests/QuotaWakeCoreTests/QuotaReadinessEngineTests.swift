@@ -174,6 +174,45 @@ final class QuotaReadinessEngineTests: XCTestCase {
         )))
     }
 
+    func testStaleBlockedStateRequestsReObservationInsteadOfPermanentWait() {
+        let decision = engine.evaluate(input: input(
+            quotaWindow: QuotaWindowState(
+                tool: .codex,
+                source: .cliMessageParser,
+                confidence: .blocked,
+                classification: .authRequired,
+                observedAt: now.addingTimeInterval(-901),
+                summary: "authentication required"
+            ),
+            activity: .active
+        ))
+
+        XCTAssertEqual(decision, .observeNeeded(QuotaReadinessObservation(
+            tool: .codex,
+            reason: .staleProviderState
+        )))
+    }
+
+    func testStaleUnavailableStateRequestsReObservationInsteadOfPermanentWait() {
+        let decision = engine.evaluate(input: input(
+            quotaWindow: QuotaWindowState(
+                tool: .codex,
+                source: .codexLocalAppServer,
+                confidence: .unknown,
+                classification: .quotaUnavailable,
+                observedAt: now.addingTimeInterval(-901),
+                summary: "Codex local quota source is unavailable"
+            ),
+            activity: .active,
+            readiness: WindowReadinessSettings(resetEstimationMode: .localSignalsOnly)
+        ))
+
+        XCTAssertEqual(decision, .observeNeeded(QuotaReadinessObservation(
+            tool: .codex,
+            reason: .staleProviderState
+        )))
+    }
+
     func testSkipsDuplicateResetWindowEventId() {
         let resetEvent = event(resetAt: resetAt)
         let decision = engine.evaluate(input: input(
