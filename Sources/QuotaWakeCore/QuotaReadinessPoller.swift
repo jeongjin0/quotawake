@@ -293,7 +293,39 @@ public final class QuotaReadinessPoller {
             timedOut: entry.timedOut,
             observedAt: entry.endedAt
         )
-        try quotaStateStore.save(state)
+        try quotaStateStore.save(mergedPostRunState(parsed: state))
+    }
+
+    // A readiness send's output ("Hi!") usually carries no quota signal, so
+    // the parsed state would clobber the richer observed window shown in the
+    // popover. Keep the fresh classification/summary/observedAt but carry the
+    // previous observation's quota display fields forward. When the run output
+    // did contain quota signals (reset time, percentages), it wins as-is.
+    private func mergedPostRunState(parsed: QuotaWindowState) -> QuotaWindowState {
+        guard parsed.resetAt == nil,
+              parsed.usedPercent == nil,
+              parsed.weeklyUsedPercent == nil,
+              let previous = (try? quotaStateStore.load(tool: parsed.tool)) ?? nil,
+              previous.resetAt != nil || previous.usedPercent != nil || previous.weeklyUsedPercent != nil
+        else {
+            return parsed
+        }
+        return QuotaWindowState(
+            tool: parsed.tool,
+            source: parsed.source,
+            confidence: parsed.confidence,
+            classification: parsed.classification,
+            observedAt: parsed.observedAt,
+            resetAt: previous.resetAt,
+            usedPercent: previous.usedPercent,
+            remainingPercent: previous.remainingPercent,
+            windowLabel: previous.windowLabel,
+            weeklyUsedPercent: previous.weeklyUsedPercent,
+            weeklyRemainingPercent: previous.weeklyRemainingPercent,
+            weeklyResetAt: previous.weeklyResetAt,
+            weeklyWindowLabel: previous.weeklyWindowLabel,
+            summary: parsed.summary
+        )
     }
 
     private func observeQuotaWindow(
