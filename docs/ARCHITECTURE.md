@@ -58,12 +58,12 @@ one-time failure self-heals.
 | UI state mapping | `AppUIModels` (pure presentation mapper consumed by the executable) |
 | Misc | `FirstRunFlow`, `LaunchAtLoginManager` (SMAppService), `UpdateChecker` (strict SemVer vs GitHub releases), `QuotaWakeCore` (bundle metadata) |
 
-## Quarantined (removed scope — do not wire up)
+## Removed scope
 
-`WakeHelper`, `WakeHelperInstaller`, `WakeCoordinator` remain from the removed
-Phase-4 wake-helper scope and are referenced only by guard tests
-(`WakeHelperTests`) and the DEBUG QA harness's `shellQuote`. See
-"Removed Wake Helper Scope" in `AGENTS.md` before touching them.
+The Phase-4 wake-helper subsystem (`WakeHelper`, `WakeHelperInstaller`,
+`WakeCoordinator`) has been deleted from the tree; it remains in git history.
+See "Removed Wake Helper Scope" in `AGENTS.md` before reintroducing anything
+like it.
 
 ## Data on disk
 

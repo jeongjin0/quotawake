@@ -48,12 +48,13 @@ This directory owns the native macOS QuotaWake app.
 - Do not call `pmset schedule cancelall`.
 - Do not call `pmset repeat` or `pmset repeat cancel`.
 - Phase 4 removed wake-helper installation and sleep-wake scheduling from the
-  active MVP/release path. Do not add active helper install, root helper, or
-  `pmset schedule wake` behavior unless a future plan explicitly reintroduces
-  it with fresh evidence.
-- Historical helper code or tests must remain clearly inactive and must not
-  overwrite unrelated launchd jobs, unrelated pmset schedules, or unrelated
-  root-owned files.
+  active MVP/release path, and the historical helper code
+  (`WakeHelper`, `WakeHelperInstaller`, `WakeCoordinator`) has since been
+  deleted from the tree (it remains in git history). Do not add active helper
+  install, root helper, or `pmset schedule wake` behavior unless a future plan
+  explicitly reintroduces it with fresh evidence.
+- Any reintroduced helper must not overwrite unrelated launchd jobs, unrelated
+  pmset schedules, or unrelated root-owned files.
 
 ## Useful Commands
 

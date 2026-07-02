@@ -56,9 +56,6 @@ swift test --filter QuotaWakeCoreTests.FirstRunFlowTests
 swift test --filter QuotaWakeCoreTests.UpdateCheckerTests
 swift test --filter QuotaWakeCoreTests.BundleMetadataTests
 swift test --filter QuotaWakeCoreTests.QuotaSourceLicenseTests
-
-# Guard tests for removed wake-helper scope (kept quarantined):
-swift test --filter QuotaWakeCoreTests.WakeHelperTests
 ```
 
 ## UI QA
@@ -293,9 +290,9 @@ keys, or keychain profile names in tracked files.
 Earlier prototypes included optional wake-helper support. Phase 4 removed it
 from the active product and release flow: readiness prompts run only as the
 logged-in user while QuotaWake is running, and the active-only gate suppresses
-background sends during idle or unsuitable power states. Keep historical helper
-code quarantined unless a future plan explicitly reintroduces it with new tests
-and release gates.
+background sends during idle or unsuitable power states. The historical helper
+code has been deleted from the tree (it remains in git history); do not
+reintroduce it without a plan that includes new tests and release gates.
 
 ## Troubleshooting
 

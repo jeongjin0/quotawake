@@ -55,25 +55,6 @@ public struct BackgroundSettings: Codable, Equatable, Sendable {
     }
 }
 
-public struct WakeSettings: Codable, Equatable, Sendable {
-    public var enabled: Bool
-    public var leadMinutes: Int
-    public var helperInstalled: Bool
-    public var lastRequestedWake: String?
-
-    public init(
-        enabled: Bool = false,
-        leadMinutes: Int = 10,
-        helperInstalled: Bool = false,
-        lastRequestedWake: String? = nil
-    ) {
-        self.enabled = enabled
-        self.leadMinutes = leadMinutes
-        self.helperInstalled = helperInstalled
-        self.lastRequestedWake = lastRequestedWake
-    }
-}
-
 public enum ResetEstimationMode: String, Codable, Equatable, Sendable {
     case localSignalsOnly
     case allowFiveHourEstimate

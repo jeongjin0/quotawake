@@ -1379,8 +1379,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         captureDirectory: URL
     ) throws -> URL {
         let executable = directory.appendingPathComponent(tool.rawValue, isDirectory: false)
-        let capturePath = WakeHelperRenderer.shellQuote(captureDirectory.path)
-        let toolName = WakeHelperRenderer.shellQuote(tool.rawValue)
+        let capturePath = qaShellQuote(captureDirectory.path)
+        let toolName = qaShellQuote(tool.rawValue)
         let script = """
         #!/bin/sh
         name=\(toolName)
@@ -1403,7 +1403,7 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         captureDirectory: URL
     ) throws -> URL {
         let executable = directory.appendingPathComponent(ToolKind.codex.rawValue, isDirectory: false)
-        let capturePath = WakeHelperRenderer.shellQuote(captureDirectory.path)
+        let capturePath = qaShellQuote(captureDirectory.path)
         let script = """
         #!/bin/sh
         capture_dir=\(capturePath)
@@ -2905,6 +2905,11 @@ struct StatusDot: View {
 }
 
 #if DEBUG
+// Shared by the QA harness's fake-executable script generators.
+func qaShellQuote(_ value: String) -> String {
+    "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+}
+
 struct NormalLaunchQAConfig {
     let evidenceDirectory: URL
     let fakeCLIRoot: URL
@@ -3006,8 +3011,8 @@ struct NormalLaunchQAConfig {
     private static func makeFakeExecutable(tool: ToolKind, directory: URL, captureDirectory: URL) throws {
         try FileManager.default.createDirectory(at: captureDirectory, withIntermediateDirectories: true)
         let executable = directory.appendingPathComponent(tool.rawValue, isDirectory: false)
-        let capturePath = WakeHelperRenderer.shellQuote(captureDirectory.path)
-        let toolName = WakeHelperRenderer.shellQuote(tool.rawValue)
+        let capturePath = qaShellQuote(captureDirectory.path)
+        let toolName = qaShellQuote(tool.rawValue)
         let script = """
         #!/bin/sh
         name=\(toolName)
