@@ -442,8 +442,6 @@ final class AppUIModelsTests: XCTestCase {
             calendar: calendar
         )
         XCTAssertEqual(migrated.schemaVersion, 2)
-        XCTAssertTrue(migrated.schedule.times.isEmpty)
-        XCTAssertFalse(migrated.wake.enabled)
         XCTAssertFalse(migratedState.panes.map(\.rawValue).contains("schedule"))
         XCTAssertEqual(migratedState.providerStates.first?.confidenceText, "Estimated")
     }

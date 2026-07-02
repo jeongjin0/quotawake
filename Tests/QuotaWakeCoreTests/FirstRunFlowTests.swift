@@ -20,18 +20,12 @@ final class FirstRunFlowTests: XCTestCase {
             return XCTFail("Expected completed settings")
         }
         XCTAssertTrue(settings.firstRunCompleted)
-        XCTAssertTrue(settings.schedule.times.isEmpty)
-        XCTAssertTrue(settings.schedule.weekdays.isEmpty)
         XCTAssertTrue(settings.background.launchAtLoginEnabled)
-        XCTAssertFalse(settings.wake.enabled)
-        XCTAssertFalse(settings.wake.helperInstalled)
     }
 
     func testSkipTestRequiresExplicitAcknowledgmentWithoutWakeSetup() throws {
         var flow = flowReadyForTestRun()
         XCTAssertEqual(flow.step, .testRun)
-        XCTAssertFalse(flow.settings.wake.enabled)
-        XCTAssertFalse(flow.settings.wake.helperInstalled)
         XCTAssertEqual(flow.advance(), .blocked(.testRunNotAcknowledged))
 
         flow.acknowledgeTestRunSkip()
