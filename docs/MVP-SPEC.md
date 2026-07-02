@@ -65,24 +65,23 @@ lightweight background utility:
 - "Settings..." opens a separate Settings window.
 - First launch opens the setup flow automatically.
 
-Recommended app identifiers:
+App identifier:
 
 - Main app bundle ID: `com.jeongjin.quotawake.agentitem`.
-- Optional worker/helper label: `com.jeongjin.quotawake.worker`.
+- The app ships no worker or helper processes.
 
 ### Menu Bar Popover
 
 The popover is for fast status and control:
 
-- Current readiness state: ready to observe, due candidate, paused, needs setup,
-  blocked, or failed.
-- Next known readiness candidate or unknown quota state.
-- Enabled tools: Claude, Codex.
-- Last run summary.
-- Run Now.
-- Pause / Resume.
-- Open Settings.
-- Quit.
+- Per-provider quota cards (Claude, Codex) for enabled, runnable tools: 5h
+  window and weekly limit, each with usage bar and reset countdown.
+- Unknown quota state surfaces an inline `Observe` chip on the affected card.
+- Recent activity: up to three compact log rows plus an "All logs" link.
+- Footer actions: Reload, Pause/Resume, Settings, Quit.
+
+Manual "Send readiness now" lives in Settings (General and Window Readiness),
+not in the popover.
 
 ### Settings Window
 
@@ -129,11 +128,11 @@ The first-run flow should optimize for trust, not speed.
 3. Configure Window Readiness
    - Explain reset-aware readiness, active-only behavior, cooldown, and
      estimation.
+   - Offer the Launch at Login / background readiness toggle (`SMAppService`)
+     as part of this step rather than a separate step.
    - Let the user keep the safe defaults or adjust readiness controls later in
      Settings.
-4. Enable Background Readiness
-   - Register Launch at Login / background readiness with `SMAppService`.
-5. Test Run
+4. Test Run
    - Send the prompt through enabled tools.
    - Show success/failure and where logs are stored.
 

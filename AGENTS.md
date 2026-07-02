@@ -4,9 +4,14 @@ This directory owns the native macOS QuotaWake app.
 
 ## Read First
 
-- App/MVP spec: `README.md`
+- Product spec and scope: `docs/MVP-SPEC.md`
+- Code structure overview: `docs/ARCHITECTURE.md`
+- Build, QA, and troubleshooting: `DEVELOPMENT.md`
+- App shape and design system: `DESIGN.md`
 - Release packaging: `RELEASE.md`
-- Implementation plan: `../.omo/plans/quotawake-mvp-implementation.md`
+- Public readme: `README.md`
+- Implementation plans live outside this repository under a machine-local
+  `../.omo/` convention; they are not available in a fresh clone.
 
 ## Product Boundaries
 
