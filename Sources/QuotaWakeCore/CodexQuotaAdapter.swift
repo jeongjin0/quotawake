@@ -222,8 +222,6 @@ public final class CodexQuotaAdapter {
         )
     }
 
-    private static let iso = ISO8601DateFormatter()
-
     private static func unavailableState(observedAt: Date, summary: String) -> QuotaWindowState {
         QuotaWindowState(
             tool: .codex,
@@ -364,7 +362,7 @@ public final class CodexQuotaAdapter {
     private static func dateValue(in object: [String: Any], keys: [String]) -> Date? {
         keys.compactMap { key in
             if let value = object[key] as? String {
-                if let date = iso.date(from: value) {
+                if let date = QuotaWindowParser.isoDate(value) {
                     return date
                 }
                 if let epoch = Double(value) {

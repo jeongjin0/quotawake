@@ -21,6 +21,52 @@ final class QuotaWindowParserTests: XCTestCase {
         XCTAssertFalse(state.summary.contains("sk-proj-fake"))
     }
 
+    func testRelativeResetAnchorsToResetPhraseNotFirstDurationInText() throws {
+        let state = QuotaWindowParser.parse(
+            tool: .claude,
+            source: .cliMessageParser,
+            stdout: "You have used your 5h limit. Resets in 3 hours.",
+            stderr: "",
+            exitCode: 1,
+            timedOut: false,
+            observedAt: now
+        )
+
+        XCTAssertEqual(state.confidence, .exactReset)
+        XCTAssertEqual(state.resetAt, now.addingTimeInterval(3 * 3_600))
+    }
+
+    func testExactResetParsesFractionalSecondAndOffsetTimestamps() throws {
+        let fractional = try XCTUnwrap(
+            QuotaWindowParser.exactReset(in: "usage limit reached; resets at 2026-06-29T05:30:00.123Z")
+        )
+        XCTAssertEqual(
+            fractional.timeIntervalSince1970,
+            try XCTUnwrap(Self.iso.date(from: "2026-06-29T05:30:00Z")).timeIntervalSince1970 + 0.123,
+            accuracy: 0.001
+        )
+
+        let offset = try XCTUnwrap(
+            QuotaWindowParser.exactReset(in: "usage limit reached; resets at 2026-06-29T14:30:00+09:00")
+        )
+        XCTAssertEqual(offset, try XCTUnwrap(Self.iso.date(from: "2026-06-29T05:30:00Z")))
+    }
+
+    func testJustPassedLocalSessionResetStaysDueInsteadOfJumpingAYear() throws {
+        let observedAt = try XCTUnwrap(Self.iso.date(from: "2026-06-15T06:00:00Z"))
+        let state = QuotaWindowParser.parse(
+            tool: .claude,
+            source: .claudeUsageProbe,
+            stdout: "Current session: 88% used. Resets Jun 15 at 5am (UTC).",
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+            observedAt: observedAt
+        )
+
+        XCTAssertEqual(state.resetAt, try XCTUnwrap(Self.iso.date(from: "2026-06-15T05:00:00Z")))
+    }
+
     func testParseSummaryRedactsBareGenericOpenAISecret() {
         let secret = "sk-fakeGenericSecret1234567890"
         let state = QuotaWindowParser.parse(

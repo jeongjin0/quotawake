@@ -55,20 +55,28 @@ public enum QuotaWindowParser {
     }
 
     static func exactReset(in text: String) -> Date? {
-        matches(#"20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z"#, in: text)
-            .compactMap { iso.date(from: $0) }
+        matches(#"20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})"#, in: text)
+            .compactMap(isoDate)
             .first
     }
 
     static func relativeReset(in text: String, observedAt: Date) -> Date? {
-        let hours = number(beforeUnits: "(?:h|hr|hrs|hour|hours)", in: text)
-        let minutes = number(beforeUnits: "(?:m|min|mins|minute|minutes)", in: text)
-        let seconds = number(beforeUnits: "(?:s|sec|secs|second|seconds)", in: text)
+        // Anchor to the reset phrase so an unrelated duration earlier in the
+        // message ("your 5h limit ... resets in 3 hours") cannot win. Without
+        // an anchor phrase, fall back to scanning the whole text.
+        let scope = matches(#"(?:resets?|try\s+again)\s+in\b([^.\n]*)"#, in: text).first ?? text
+        let hours = number(beforeUnits: "(?:h|hr|hrs|hour|hours)", in: scope)
+        let minutes = number(beforeUnits: "(?:m|min|mins|minute|minutes)", in: scope)
+        let seconds = number(beforeUnits: "(?:s|sec|secs|second|seconds)", in: scope)
         let total = (hours * 3_600) + (minutes * 60) + seconds
         guard total > 0 else {
             return nil
         }
         return observedAt.addingTimeInterval(TimeInterval(total))
+    }
+
+    static func isoDate(_ value: String) -> Date? {
+        iso.date(from: value) ?? isoFractional.date(from: value)
     }
 
     static func usedPercent(in text: String) -> Double? {
@@ -79,6 +87,14 @@ public enum QuotaWindowParser {
     }
 
     private static let iso = ISO8601DateFormatter()
+
+    // The default ISO8601DateFormatter rejects fractional seconds, so
+    // "…T13:00:00.123Z" would match the reset regex but fail to parse.
+    private static let isoFractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 
     private struct CurrentSessionQuota {
         let usedPercent: Double
@@ -182,7 +198,11 @@ public enum QuotaWindowParser {
             return nil
         }
 
-        if parsed < observedAt.addingTimeInterval(-60) {
+        // Month/day-only resets near the December/January boundary belong to
+        // next year. Use a one-day threshold: a reset that passed moments ago
+        // (probe raced the boundary, stale screen) must stay "due now" rather
+        // than jump a year into the future and wedge the candidate.
+        if parsed < observedAt.addingTimeInterval(-86_400) {
             return calendar.date(byAdding: .year, value: 1, to: parsed) ?? parsed
         }
         return parsed

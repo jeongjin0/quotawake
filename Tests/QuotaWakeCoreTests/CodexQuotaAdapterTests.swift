@@ -41,6 +41,32 @@ final class CodexQuotaAdapterTests: XCTestCase {
         XCTAssertNil(runner.lastRequest?.stdin)
     }
 
+    func testObserveParsesFractionalSecondResetTimestamps() throws {
+        let runner = RecordingQuotaProbeRunner(result: .success(QuotaProbeResult(
+            exitCode: 0,
+            timedOut: false,
+            stdout: #"{"jsonrpc":"2.0","id":2,"result":{"primaryWindow":{"resetAt":"2026-06-29T05:30:00.500Z","usedPercent":72.5,"window":"5h"}}}"#,
+            stderr: "",
+            startedAt: now,
+            endedAt: now
+        )))
+        let adapter = CodexQuotaAdapter(
+            executableURL: URL(fileURLWithPath: "/tmp/codex"),
+            runDirectory: URL(fileURLWithPath: "/tmp"),
+            runner: runner
+        )
+
+        let state = adapter.observe(observedAt: now)
+
+        XCTAssertEqual(state.confidence, .observedLocalQuota)
+        let resetAt = try XCTUnwrap(state.resetAt)
+        XCTAssertEqual(
+            resetAt.timeIntervalSince1970,
+            try XCTUnwrap(Self.iso.date(from: "2026-06-29T05:30:00Z")).timeIntervalSince1970 + 0.5,
+            accuracy: 0.001
+        )
+    }
+
     func testObserveReadsCurrentCodexRateLimitSnapshot() throws {
         let resetAt = Date(timeIntervalSince1970: 1_782_728_573)
         let runner = RecordingQuotaProbeRunner(result: .success(QuotaProbeResult(
