@@ -94,20 +94,7 @@ public struct QuotaWindowState: Codable, Equatable, Sendable {
 
 public enum QuotaWindowSanitizer {
     public static func sanitize(_ raw: String, limit: Int = 500) -> String {
-        var value = raw.replacingOccurrences(of: "\u{001B}\\[[0-9;]*[A-Za-z]", with: "", options: .regularExpression)
-        let replacements = [
-            #"(?i)Bearer\s+[A-Za-z0-9._~+/=-]+"#: "Bearer <redacted>",
-            #"(?i)(sk-(?:ant|proj)?-[A-Za-z0-9_-]+)"#: "<redacted>",
-            #"\bsk-[A-Za-z0-9._-]{12,}\b"#: "<redacted>",
-            #"(?i)(ANTHROPIC_API_KEY|OPENAI_API_KEY|AZURE_OPENAI_API_KEY)=\S+"#: "$1=<redacted>",
-            #"(?i)(Cookie:\s*)[^\n\r]+"#: "$1<redacted>",
-            #"(?i)\b(session[_ -]?id|sessionid)(\s*[:=]?\s*)"?[A-Za-z0-9][A-Za-z0-9._:-]*"?"#: "$1$2<redacted>",
-            #"(?i)\bsession(\s*[:=]\s*)"?sess[A-Za-z0-9._:-]*"?"#: "session$1<redacted>",
-            ##"(?i)("?(?:authorization|api[_-]?key|cookie|token|transcript|project)"?\s*[:=]\s*)"?[^",\n\r}]+"?"##: "$1<redacted>"
-        ]
-        for (pattern, replacement) in replacements {
-            value = value.replacingOccurrences(of: pattern, with: replacement, options: .regularExpression)
-        }
+        var value = SecretRedaction.applyPatterns(SecretRedaction.stripANSI(raw), token: "<redacted>")
         value = value.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
         if value.count > limit {
             return String(value.prefix(limit)) + "..."

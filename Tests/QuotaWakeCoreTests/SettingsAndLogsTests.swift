@@ -139,6 +139,35 @@ final class SettingsAndLogsTests: XCTestCase {
         XCTAssertTrue(sanitized.contains("normal readiness output stays visible"))
     }
 
+    func testBothSanitizersRedactTheSharedSecretCorpus() {
+        // Both disk-bound sanitizers must consume the same rule set: a leak
+        // pattern fixed in one surface previously stayed leakable in the other
+        // (Cookie lines survived run logs; password/secret survived quota
+        // summaries).
+        let corpus = """
+        Authorization: Bearer abcDEF123
+        Cookie: session=deadbeef; auth=cafebabe
+        ANTHROPIC_API_KEY=sk-ant-secret123
+        bare key sk-proj-abcdefghijklmnop inline
+        session_id=019f0b09-52c1-7443-bc80-0bdde9c5d918
+        password: hunter2
+        secret=letmein
+        """
+        let secrets = [
+            "abcDEF123", "deadbeef", "cafebabe", "sk-ant-secret123",
+            "sk-proj-abcdefghijklmnop", "019f0b09-52c1-7443-bc80-0bdde9c5d918",
+            "hunter2", "letmein"
+        ]
+
+        let runLog = RunLogSanitizer.sanitize(corpus)
+        let quotaWindow = QuotaWindowSanitizer.sanitize(corpus)
+
+        for secret in secrets {
+            XCTAssertFalse(runLog.contains(secret), "RunLogSanitizer leaked \(secret)")
+            XCTAssertFalse(quotaWindow.contains(secret), "QuotaWindowSanitizer leaked \(secret)")
+        }
+    }
+
     func testRunLogStoreReadAllSkipsCorruptedLinesAndKeepsDecodableEntries() throws {
         let paths = try makePaths()
         let store = RunLogStore(paths: paths, calendar: Self.utcCalendar)

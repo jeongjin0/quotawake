@@ -20,7 +20,7 @@ public final class CodexAppServerQuotaProcessRunner: QuotaProbeRunning {
 
         let stdinPipe = Pipe()
         let stdout = CodexAppServerLineCollector(limitBytes: outputLimitBytes)
-        let stderr = CodexAppServerDataCollector(limitBytes: outputLimitBytes)
+        let stderr = BoundedPipeCollector(limitBytes: outputLimitBytes)
 
         process.standardInput = stdinPipe
         process.standardOutput = stdout.pipe
@@ -96,7 +96,10 @@ public final class CodexAppServerQuotaProcessRunner: QuotaProbeRunning {
     }
 
     private func write(_ message: String, to pipe: Pipe) {
-        pipe.fileHandleForWriting.write(Data(message.utf8))
+        // write(contentsOf:) throws on a broken pipe; the legacy write(_:)
+        // raised an uncatchable ObjC exception if the app-server exited
+        // between the initialize response and this write.
+        try? pipe.fileHandleForWriting.write(contentsOf: Data(message.utf8))
     }
 
     private func wait(on semaphore: DispatchSemaphore, until deadline: Date) -> Bool {
@@ -536,42 +539,3 @@ private final class CodexAppServerLineCollector {
     }
 }
 
-private final class CodexAppServerDataCollector {
-    let pipe = Pipe()
-    private let limitBytes: Int
-    private let lock = NSLock()
-    private var buffer = Data()
-
-    init(limitBytes: Int) {
-        self.limitBytes = limitBytes
-    }
-
-    func start() {
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            self?.append(handle.availableData)
-        }
-    }
-
-    func stop() {
-        pipe.fileHandleForReading.readabilityHandler = nil
-        append(pipe.fileHandleForReading.availableData)
-    }
-
-    func string() -> String {
-        lock.lock()
-        defer { lock.unlock() }
-        return String(data: buffer, encoding: .utf8) ?? ""
-    }
-
-    private func append(_ data: Data) {
-        guard !data.isEmpty else {
-            return
-        }
-        lock.lock()
-        defer { lock.unlock() }
-        let remaining = max(0, limitBytes - buffer.count)
-        if remaining > 0 {
-            buffer.append(data.prefix(remaining))
-        }
-    }
-}
