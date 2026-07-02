@@ -33,6 +33,10 @@ public final class QuotaReadinessPoller {
     private let quotaObserverProvider: (ResolvedToolCommand, QuotaWakePaths) -> QuotaWindowObserving?
     private let engine: QuotaReadinessEngine
     private let now: () -> Date
+    // Minimum spacing between automatic quota observations per tool, so an
+    // unparseable or unavailable provider does not spawn a probe subprocess on
+    // every poll tick. Manual observeNow() is not throttled.
+    private let minimumObserveIntervalSeconds: TimeInterval
     private let lock = NSLock()
     private var tickRunning = false
 
@@ -47,7 +51,8 @@ public final class QuotaReadinessPoller {
         activityEvaluatorProvider: @escaping (WindowReadinessSettings) -> ActivityEvaluating = ActivityEvaluatorProvider.makeEvaluator,
         quotaObserverProvider: @escaping (ResolvedToolCommand, QuotaWakePaths) -> QuotaWindowObserving? = LocalQuotaWindowObserverProvider.makeObserver,
         engine: QuotaReadinessEngine = QuotaReadinessEngine(),
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        minimumObserveIntervalSeconds: TimeInterval = 600
     ) {
         self.paths = paths
         self.settingsStore = settingsStore
@@ -60,6 +65,7 @@ public final class QuotaReadinessPoller {
         self.quotaObserverProvider = quotaObserverProvider
         self.engine = engine
         self.now = now
+        self.minimumObserveIntervalSeconds = minimumObserveIntervalSeconds
     }
 
     public func sendNow() throws {
@@ -78,7 +84,7 @@ public final class QuotaReadinessPoller {
                 decisionSource: .toolSettings,
                 quotaConfidence: nil
             ))
-            try appendIfMissing(entry)
+            try appendRunEntryIfMissing(entry)
             try updateQuotaState(from: entry)
         }
     }
@@ -106,45 +112,80 @@ public final class QuotaReadinessPoller {
         let completedEventIds = Set(logs.filter { providerWasInvoked(status: $0.status) }.map(\.eventId))
 
         for command in commands where settings.tools[command.tool].enabled {
-            let currentTime = now()
-            let quotaState = try quotaStateStore.load(tool: command.tool)
-            let toolLogs = logs.filter { $0.tool == command.tool }
-            let decision = engine.evaluate(input: QuotaReadinessInput(
-                tool: command.tool,
-                toolSettings: settings.tools[command.tool],
-                quotaWindow: quotaState,
-                activity: activity,
-                readiness: settings.readiness,
-                now: currentTime,
-                lastSuccessAt: lastSuccessAt(in: toolLogs),
-                lastSentAt: lastProviderAttemptAt(in: toolLogs),
-                completedResetWindowEventIds: completedEventIds
-            ))
-
-            switch decision {
-            case let .send(event):
-                let source = decisionSource(for: event)
-                let entry = try runner.run(ToolRunRequest(
+            do {
+                try evaluateTool(
                     command: command,
-                    prompt: settings.prompt,
-                    eventId: event.eventId,
-                    scheduledAt: currentTime,
-                    runDirectory: paths.runDirectory,
-                    decisionSource: source,
-                    quotaConfidence: event.confidence
-                ))
-                try appendIfMissing(entry)
-                try updateQuotaState(from: entry)
-            case let .wait(wait):
-                try appendSkipIfUseful(wait, command: command, prompt: settings.prompt, scheduledAt: currentTime)
-            case let .observeNeeded(observation):
-                try observeQuotaWindow(
-                    command: command,
-                    prompt: settings.prompt,
-                    scheduledAt: currentTime,
-                    reason: observation.reason
+                    settings: settings,
+                    activity: activity,
+                    logs: logs,
+                    completedEventIds: completedEventIds
                 )
+            } catch {
+                // One tool's failure (corrupt state file, log I/O error) must
+                // not stop evaluation of the remaining tools this tick.
+                continue
             }
+        }
+    }
+
+    private func evaluateTool(
+        command: ResolvedToolCommand,
+        settings: AppSettings,
+        activity: ActivityGateResult,
+        logs: [RunLogEntry],
+        completedEventIds: Set<String>
+    ) throws {
+        let currentTime = now()
+        // A corrupt per-tool state file degrades to "no observation yet"; the
+        // resulting observeNeeded decision re-probes and rewrites it.
+        let quotaState = (try? quotaStateStore.load(tool: command.tool)) ?? nil
+        let toolLogs = logs.filter { $0.tool == command.tool }
+        let decision = engine.evaluate(input: QuotaReadinessInput(
+            tool: command.tool,
+            toolSettings: settings.tools[command.tool],
+            quotaWindow: quotaState,
+            activity: activity,
+            readiness: settings.readiness,
+            now: currentTime,
+            lastSuccessAt: lastSuccessAt(in: toolLogs),
+            lastSentAt: lastProviderAttemptAt(in: toolLogs),
+            completedResetWindowEventIds: completedEventIds
+        ))
+
+        switch decision {
+        case let .send(event):
+            let source = decisionSource(for: event)
+            let entry = try runner.run(ToolRunRequest(
+                command: command,
+                prompt: settings.prompt,
+                eventId: event.eventId,
+                scheduledAt: currentTime,
+                runDirectory: paths.runDirectory,
+                decisionSource: source,
+                quotaConfidence: event.confidence
+            ))
+            try appendRunEntryIfMissing(entry)
+            try updateQuotaState(from: entry)
+        case let .wait(wait):
+            try appendSkipIfUseful(
+                wait,
+                command: command,
+                prompt: settings.prompt,
+                scheduledAt: currentTime,
+                logs: toolLogs
+            )
+        case let .observeNeeded(observation):
+            if let quotaState,
+               currentTime.timeIntervalSince(quotaState.observedAt) < minimumObserveIntervalSeconds {
+                return
+            }
+            try observeQuotaWindow(
+                command: command,
+                prompt: settings.prompt,
+                scheduledAt: currentTime,
+                reason: observation.reason,
+                previousToolLogs: toolLogs
+            )
         }
     }
 
@@ -158,7 +199,8 @@ public final class QuotaReadinessPoller {
                 command: command,
                 prompt: settings.prompt,
                 scheduledAt: scheduledAt,
-                reason: .unknownStrictMode
+                reason: .unknownStrictMode,
+                previousToolLogs: []
             )
         }
     }
@@ -183,13 +225,24 @@ public final class QuotaReadinessPoller {
         _ wait: QuotaReadinessWait,
         command: ResolvedToolCommand,
         prompt: String,
-        scheduledAt: Date
+        scheduledAt: Date,
+        logs: [RunLogEntry]
     ) throws {
         guard shouldLog(wait.reason) else {
             return
         }
+        let reasonText = skipReasonText(wait.reason)
+        let eventId = wait.nextCandidate?.eventId ?? "wait-\(command.tool.rawValue)-\(reasonText)"
+        // Log skip transitions, not every poll tick: while the same candidate
+        // stays gated for the same reason (idle overnight, cooldown), one entry
+        // is enough. A new candidate, reason, or interleaved run logs again.
+        if let latest = logs.last,
+           latest.status == .skippedMissedWindow,
+           latest.eventId == eventId,
+           latest.skipReason == reasonText {
+            return
+        }
         let now = now()
-        let eventId = wait.nextCandidate?.eventId ?? "wait-\(command.tool.rawValue)-\(Int(now.timeIntervalSince1970))"
         let entry = RunLogEntry(
             eventId: eventId,
             scheduledAt: scheduledAt,
@@ -207,12 +260,14 @@ public final class QuotaReadinessPoller {
             errorSummary: nil,
             decisionSource: wait.source,
             quotaConfidence: wait.nextCandidate?.confidence,
-            skipReason: skipReasonText(wait.reason)
+            skipReason: reasonText
         )
-        try appendIfMissing(entry)
+        try logStore.append(entry)
     }
 
-    private func appendIfMissing(_ entry: RunLogEntry) throws {
+    private func appendRunEntryIfMissing(_ entry: RunLogEntry) throws {
+        // The production ToolRunner persists its own run entries; skip the
+        // append when this exact run is already the latest thing on disk.
         let alreadyLogged = try logStore.readAll().contains { logged in
             isSameLogEntry(logged, entry)
         }
@@ -245,12 +300,13 @@ public final class QuotaReadinessPoller {
         command: ResolvedToolCommand,
         prompt: String,
         scheduledAt: Date,
-        reason: QuotaReadinessObserveReason
+        reason: QuotaReadinessObserveReason,
+        previousToolLogs: [RunLogEntry]
     ) throws {
         let startedAt = now()
         guard let observer = quotaObserverProvider(command, paths) else {
             let endedAt = now()
-            try appendIfMissing(observationLogEntry(
+            try appendObservationIfChanged(observationLogEntry(
                 command: command,
                 prompt: prompt,
                 scheduledAt: scheduledAt,
@@ -259,14 +315,14 @@ public final class QuotaReadinessPoller {
                 state: nil,
                 skipReason: "quota_observe_unavailable",
                 summary: "local quota source unavailable: \(observeReasonText(reason))"
-            ))
+            ), previousToolLogs: previousToolLogs)
             return
         }
 
         let state = observer.observe(observedAt: startedAt)
         try quotaStateStore.save(state)
         let endedAt = now()
-        try appendIfMissing(observationLogEntry(
+        try appendObservationIfChanged(observationLogEntry(
             command: command,
             prompt: prompt,
             scheduledAt: scheduledAt,
@@ -275,7 +331,23 @@ public final class QuotaReadinessPoller {
             state: state,
             skipReason: observationSkipReason(for: state),
             summary: state.summary
-        ))
+        ), previousToolLogs: previousToolLogs)
+    }
+
+    private func appendObservationIfChanged(
+        _ entry: RunLogEntry,
+        previousToolLogs: [RunLogEntry]
+    ) throws {
+        // Repeated observations with the same outcome (e.g. app-server still
+        // unavailable) would otherwise append an identical entry per probe.
+        if let latest = previousToolLogs.last,
+           latest.status == .skippedMissedWindow,
+           latest.eventId.hasPrefix("quota-observe-"),
+           latest.skipReason == entry.skipReason,
+           latest.stdoutSummary == entry.stdoutSummary {
+            return
+        }
+        try logStore.append(entry)
     }
 
     private func observationLogEntry(
