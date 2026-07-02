@@ -135,32 +135,12 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
             defer: false
         )
         window.title = "QuotaWake Settings"
-        window.minSize = NSSize(width: 900, height: 620)
-        window.titlebarAppearsTransparent = true
-        window.styleMask.insert(.fullSizeContentView)
+        window.minSize = NSSize(width: 720, height: 520)
         window.contentViewController = NSHostingController(rootView: QuotaWakeSettingsView(model: model))
-        alignSettingsWindowTrafficLights(window)
         window.center()
         window.makeKeyAndOrderFront(nil)
-        alignSettingsWindowTrafficLights(window)
         settingsWindow = window
         NSApp.activate(ignoringOtherApps: true)
-    }
-
-    @MainActor
-    private func alignSettingsWindowTrafficLights(_ window: NSWindow) {
-        let buttonOrigins: [(NSWindow.ButtonType, CGFloat)] = [
-            (.closeButton, 30),
-            (.miniaturizeButton, 52),
-            (.zoomButton, 74)
-        ]
-
-        for (buttonType, xOrigin) in buttonOrigins {
-            guard let button = window.standardWindowButton(buttonType) else {
-                continue
-            }
-            button.setFrameOrigin(NSPoint(x: xOrigin, y: button.frame.origin.y))
-        }
     }
 
     @MainActor
@@ -438,16 +418,40 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
                     to: config.evidenceDirectory.appendingPathComponent("settings-readiness.png")
                 )
             case "settings-only":
-                for pane in SettingsPaneID.allCases {
-                    model.selectedPane = pane
-                    let fileName = pane == .general ? "settings.png" : "settings-\(pane.rawValue).png"
-                    try UIQARenderer.render(
-                        QuotaWakeSettingsView(model: model)
-                            .frame(width: 980, height: 680),
-                        size: NSSize(width: 980, height: 680),
-                        to: config.evidenceDirectory.appendingPathComponent(fileName)
-                    )
-                }
+                try renderSettingsPanes(
+                    model: model,
+                    evidenceDirectory: config.evidenceDirectory
+                )
+            case "settings-empty-logs":
+                model.selectedPane = .logs
+                try UIQARenderer.render(
+                    QuotaWakeSettingsView(model: model)
+                        .frame(width: 980, height: 680),
+                    size: NSSize(width: 980, height: 680),
+                    to: config.evidenceDirectory.appendingPathComponent("settings-logs-empty.png")
+                )
+            case "settings-light":
+                try renderSettingsPanes(
+                    model: model,
+                    evidenceDirectory: config.evidenceDirectory,
+                    suffix: "light",
+                    colorScheme: .light
+                )
+            case "settings-dark":
+                try renderSettingsPanes(
+                    model: model,
+                    evidenceDirectory: config.evidenceDirectory,
+                    suffix: "dark",
+                    colorScheme: .dark
+                )
+            case "settings-resize":
+                try renderSettingsPanes(
+                    model: model,
+                    evidenceDirectory: config.evidenceDirectory,
+                    suffix: "resize-720x520",
+                    size: NSSize(width: 720, height: 520),
+                    colorScheme: .dark
+                )
             case "popover-settings":
                 try UIQARenderer.render(
                     QuotaWakePopoverView(model: model, openSettings: {}, quit: {})
@@ -473,6 +477,28 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         } catch {
             FileHandle.standardError.write(Data("UI QA failed: \(error)\n".utf8))
             exit(1)
+        }
+    }
+
+    @MainActor
+    private func renderSettingsPanes(
+        model: QuotaWakeAppModel,
+        evidenceDirectory: URL,
+        suffix: String? = nil,
+        size: NSSize = NSSize(width: 980, height: 680),
+        colorScheme: ColorScheme = .dark
+    ) throws {
+        for pane in SettingsPaneID.allCases {
+            model.selectedPane = pane
+            let baseName = pane == .general ? "settings" : "settings-\(pane.rawValue)"
+            let fileName = suffix.map { "\(baseName)-\($0).png" } ?? "\(baseName).png"
+            try UIQARenderer.render(
+                QuotaWakeSettingsView(model: model)
+                    .frame(width: size.width, height: size.height),
+                size: size,
+                to: evidenceDirectory.appendingPathComponent(fileName),
+                colorScheme: colorScheme
+            )
         }
     }
 

@@ -172,6 +172,10 @@ struct UIQAConfig {
     private static let validScenarios: Set<String> = [
         "settings-only",
         "popover-settings",
+        "settings-empty-logs",
+        "settings-light",
+        "settings-dark",
+        "settings-resize",
         "missing-cli",
         "first-run",
         "run-now",
@@ -249,9 +253,12 @@ enum UIQAFixture {
         var settings = AppSettings.default
         settings.firstRunCompleted = true
         settings.background.launchAtLoginEnabled = true
+        settings.prompt = """
+        Prepare a concise session-readiness note for Claude and Codex. Confirm the current usage window, summarize the exact reset evidence, and only send if the user is active and the configured cooldown has elapsed. Include enough context that a long prompt preview proves Settings rows do not overlap or resize unexpectedly.
+        """
 
         let now = Date()
-        let logs = [
+        let fixtureLogs = [
             RunLogEntry(
                 eventId: "qa-success",
                 scheduledAt: now,
@@ -266,8 +273,24 @@ enum UIQAFixture {
                 stdoutSummary: "ok",
                 stderrSummary: "",
                 prompt: settings.prompt
+            ),
+            RunLogEntry(
+                eventId: "qa-codex-long-summary",
+                scheduledAt: now.addingTimeInterval(-300),
+                startedAt: now.addingTimeInterval(-300),
+                endedAt: now.addingTimeInterval(-296),
+                tool: .codex,
+                commandPath: "/opt/homebrew/bin/codex",
+                status: .failed,
+                exitCode: 70,
+                durationMs: 4_100,
+                timedOut: false,
+                stdoutSummary: "",
+                stderrSummary: "Local quota probe returned an unusually long diagnostic summary that must wrap inside the log table without pushing the exit-code or summary columns out of view.",
+                prompt: settings.prompt
             )
         ]
+        let logs = scenario == "settings-empty-logs" ? [] : fixtureLogs
 
         if scenario == "missing-cli" {
             settings.tools.codex.manualPath = "/Users/example/.nvm/versions/node/v99.99.99/bin/codex-with-a-very-long-name"

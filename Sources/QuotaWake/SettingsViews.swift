@@ -42,34 +42,40 @@ enum QWTheme {
 }
 
 enum QWSettingsTheme {
-    static let window = Color(red: 0.112, green: 0.122, blue: 0.122)
-    static let sidebarOuter = Color(red: 0.118, green: 0.136, blue: 0.132)
-    static let sidebarBlockTop = Color(red: 0.075, green: 0.081, blue: 0.079)
-    static let sidebarBlockBottom = Color(red: 0.061, green: 0.066, blue: 0.064)
-    static let block = Color(red: 0.082, green: 0.086, blue: 0.086)
-    static let blockRow = Color(red: 0.095, green: 0.099, blue: 0.098)
-    static let blockRowRaised = Color(red: 0.116, green: 0.120, blue: 0.119)
+    static let window = Color(nsColor: .windowBackgroundColor)
+    static let sidebarOuter = Color(nsColor: .underPageBackgroundColor)
+    static let block = Color(nsColor: .controlBackgroundColor)
+    static let blockRow = Color(nsColor: .windowBackgroundColor)
+    static let blockRowRaised = Color(nsColor: .controlBackgroundColor)
     static let panel = block
     static let panelRaised = blockRowRaised
-    static let rowPressed = Color.white.opacity(0.085)
-    static let sidebarSelected = Color(red: 0.285, green: 0.285, blue: 0.285)
-    static let border = Color.white.opacity(0.075)
-    static let strongBorder = Color.white.opacity(0.15)
-    static let sidebarBorder = Color.white.opacity(0.20)
-    static let primaryText = Color.white.opacity(0.88)
-    static let secondaryText = Color.white.opacity(0.64)
-    static let tertiaryText = Color.white.opacity(0.42)
-    static let control = Color.white.opacity(0.105)
-    static let controlPressed = Color.white.opacity(0.14)
-    static let input = Color(red: 0.075, green: 0.078, blue: 0.078)
-    static let accent = Color(red: 0.0, green: 0.48, blue: 1.0)
-    static let accentForeground = Color.white
+    static let rowPressed = Color(nsColor: .controlAccentColor).opacity(0.12)
+    static let sidebarSelected = Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
+    static let border = Color(nsColor: .separatorColor)
+    static let strongBorder = Color(nsColor: .separatorColor).opacity(0.85)
+    static let primaryText = Color.primary
+    static let secondaryText = Color.secondary
+    static let tertiaryText = Color(nsColor: .tertiaryLabelColor)
+    static let control = Color(nsColor: .controlBackgroundColor)
+    static let controlPressed = Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
+    static let input = Color(nsColor: .textBackgroundColor)
+    static let accent = Color.accentColor
+    static let accentPressed = Color(nsColor: .selectedContentBackgroundColor)
+    static let accentForeground = Color(nsColor: .alternateSelectedControlTextColor)
+}
 
-    static let sidebarBlock = LinearGradient(
-        colors: [sidebarBlockTop, sidebarBlockBottom],
-        startPoint: .top,
-        endPoint: .bottom
-    )
+enum PaneRowControlPlacement {
+    case trailing
+    case fullWidth
+    case below
+}
+
+enum PaneRowMetrics {
+    static let labelWidth: CGFloat = 240
+    static let rowMinHeight: CGFloat = 52
+    static let rowHorizontalPadding: CGFloat = 14
+    static let rowVerticalPadding: CGFloat = 10
+    static let labelControlGap: CGFloat = 16
 }
 
 struct QWCommandButtonStyle: ButtonStyle {
@@ -101,7 +107,7 @@ struct QWCommandButtonStyle: ButtonStyle {
 
     private var foreground: Color {
         if !isEnabled {
-            return colorScheme == .dark ? QWSettingsTheme.tertiaryText : QWTheme.secondaryText.opacity(0.65)
+            return QWSettingsTheme.tertiaryText
         }
         if colorScheme == .dark {
             return prominent ? QWSettingsTheme.accentForeground : QWSettingsTheme.primaryText
@@ -111,11 +117,11 @@ struct QWCommandButtonStyle: ButtonStyle {
 
     private func background(configuration: Configuration) -> Color {
         if !isEnabled {
-            return colorScheme == .dark ? QWSettingsTheme.control.opacity(0.55) : QWTheme.surfaceSubtle
+            return QWSettingsTheme.control.opacity(0.55)
         }
         if prominent {
             if colorScheme == .dark {
-                return configuration.isPressed ? QWSettingsTheme.accent.opacity(0.78) : QWSettingsTheme.accent
+                return configuration.isPressed ? QWSettingsTheme.accentPressed : QWSettingsTheme.accent
             }
             return configuration.isPressed ? QWTheme.accentPressed : QWTheme.accent
         }
@@ -242,6 +248,8 @@ struct QuotaWakeSettingsView: View {
         HStack(spacing: 0) {
             sidebar
 
+            Divider()
+
             Group {
                 switch model.selectedPane ?? .general {
                 case .general:
@@ -259,53 +267,32 @@ struct QuotaWakeSettingsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(QWSettingsTheme.window)
         }
-        .frame(minWidth: 900, minHeight: 620)
+        .frame(minWidth: 720, minHeight: 520)
         .background(QWSettingsTheme.window)
         .foregroundStyle(QWSettingsTheme.primaryText)
         .tint(QWSettingsTheme.accent)
         .groupBoxStyle(QWGroupBoxStyle())
-        .environment(\.colorScheme, .dark)
     }
 
     private var sidebar: some View {
-        ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 21, style: .continuous)
-                .fill(QWSettingsTheme.sidebarBlock)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 21, style: .continuous)
-                        .stroke(QWSettingsTheme.sidebarBorder, lineWidth: 1)
-                )
-                .padding(.leading, 14)
-                .padding(.trailing, 10)
-                .padding(.vertical, 14)
-
-            VStack(alignment: .leading, spacing: 0) {
-                Spacer()
-                    .frame(height: 92)
-
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(SettingsPaneID.allCases, id: \.self) { pane in
-                        Button {
-                            model.selectedPane = pane
-                        } label: {
-                            SidebarNavigationItem(pane: pane)
-                        }
-                        .buttonStyle(QWSidebarButtonStyle(selected: (model.selectedPane ?? .general) == pane))
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(SettingsPaneID.allCases, id: \.self) { pane in
+                    Button {
+                        model.selectedPane = pane
+                    } label: {
+                        SidebarNavigationItem(pane: pane)
                     }
+                    .buttonStyle(QWSidebarButtonStyle(selected: (model.selectedPane ?? .general) == pane))
                 }
-
-                Spacer(minLength: 20)
-
-                Text(model.settingsState.appVersionText)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(QWSettingsTheme.tertiaryText)
-                    .padding(.horizontal, 6)
-                    .padding(.bottom, 6)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 22)
+
+            Spacer(minLength: 0)
         }
-        .frame(width: 254)
+        .padding(.horizontal, 12)
+        .padding(.top, 18)
+        .padding(.bottom, 14)
+        .frame(width: 212)
         .background(QWSettingsTheme.sidebarOuter)
     }
 }
@@ -316,12 +303,12 @@ struct SidebarNavigationItem: View {
     var body: some View {
         HStack(spacing: 9) {
             Image(systemName: pane.systemImage)
-                .font(.system(size: 16, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .symbolRenderingMode(.hierarchical)
                 .frame(width: 18, alignment: .center)
             Text(pane.title)
                 .lineLimit(1)
-                .minimumScaleFactor(0.88)
+                .minimumScaleFactor(0.82)
             Spacer(minLength: 0)
         }
     }
@@ -332,7 +319,7 @@ struct GeneralPane: View {
 
     var body: some View {
         SettingsPaneLayout(title: "General") {
-            SettingsSection("Status") {
+            PaneGroup("Status") {
                 SettingsStatusBanner(
                     title: model.popoverState.statusTitle,
                     detail: model.popoverState.statusDetail,
@@ -348,14 +335,14 @@ struct GeneralPane: View {
                 }
             }
 
-            SettingsSection("Application") {
-                SettingsValueRow(
+            PaneGroup("Application") {
+                PaneValueRow(
                     label: "App",
                     detail: "Installed QuotaWake build.",
                     value: model.settingsState.appVersionText
                 )
-                SettingsDivider()
-                SettingsControlRow(
+                PaneSeparator()
+                PaneControlRow(
                     label: "Launch at Login",
                     detail: "Start session readiness after you sign in."
                 ) {
@@ -369,8 +356,8 @@ struct GeneralPane: View {
                     .labelsHidden()
                     .toggleStyle(.switch)
                 }
-                SettingsDivider()
-                SettingsControlRow(
+                PaneSeparator()
+                PaneControlRow(
                     label: "Background readiness",
                     detail: "Pause automatic quota window readiness without changing manual actions."
                 ) {
@@ -384,8 +371,8 @@ struct GeneralPane: View {
                     .labelsHidden()
                     .toggleStyle(.switch)
                 }
-                SettingsDivider()
-                SettingsControlRow(
+                PaneSeparator()
+                PaneControlRow(
                     label: "Manual updates",
                     detail: "Check the release page for a signed DMG."
                 ) {
@@ -404,8 +391,8 @@ struct GeneralPane: View {
                     }
                 }
                 if case let .available(version, _) = model.updateCheckState {
-                    SettingsDivider()
-                    SettingsControlRow(
+                    PaneSeparator()
+                    PaneControlRow(
                         label: "Available download",
                         detail: "Open the latest manual installer."
                     ) {
@@ -456,8 +443,8 @@ struct ToolsPane: View {
     var body: some View {
         SettingsPaneLayout(title: "Tools") {
             ForEach(model.settingsState.toolStates, id: \.tool) { state in
-                SettingsSection(state.displayName) {
-                    SettingsControlRow(
+                PaneGroup(state.displayName) {
+                    PaneControlRow(
                         label: "Enabled",
                         detail: "Allow readiness prompts through this installed CLI."
                     ) {
@@ -471,12 +458,12 @@ struct ToolsPane: View {
                         .labelsHidden()
                         .toggleStyle(.switch)
                     }
-                    SettingsDivider()
-                    SettingsValueRow(label: "Status", value: state.statusText)
-                    SettingsDivider()
-                    SettingsValueRow(label: "Detected path", value: state.pathText, monospaced: true)
-                    SettingsDivider()
-                    SettingsControlRow(
+                    PaneSeparator()
+                    PaneValueRow(label: "Status", value: state.statusText)
+                    PaneSeparator()
+                    PaneValueRow(label: "Detected path", value: state.pathText, monospaced: true)
+                    PaneSeparator()
+                    PaneControlRow(
                         label: "Manual path",
                         detail: "Optional override when auto-detection picks the wrong executable."
                     ) {
@@ -501,8 +488,8 @@ struct ToolsPane: View {
                                 .stroke(QWSettingsTheme.strongBorder, lineWidth: 1)
                         )
                     }
-                    SettingsDivider()
-                    SettingsControlRow(label: "Readiness test", detail: state.detailText) {
+                    PaneSeparator()
+                    PaneControlRow(label: "Readiness test", detail: state.detailText) {
                         HStack(spacing: 8) {
                             Button {
                                 model.runNow()
@@ -524,14 +511,14 @@ struct ReadinessPane: View {
 
     var body: some View {
         SettingsPaneLayout(title: "Window Readiness") {
-            SettingsSection("Session readiness") {
-                SettingsValueRow(label: "Summary", value: model.settingsState.readinessSummary)
-                SettingsDivider()
-                SettingsValueRow(label: "Next reset", value: model.settingsState.nextResetText)
-                SettingsDivider()
-                SettingsValueRow(label: "Confidence", value: model.settingsState.confidenceText)
-                SettingsDivider()
-                SettingsControlRow(
+            PaneGroup("Session readiness") {
+                PaneValueRow(label: "Summary", value: model.settingsState.readinessSummary)
+                PaneSeparator()
+                PaneValueRow(label: "Next reset", value: model.settingsState.nextResetText)
+                PaneSeparator()
+                PaneValueRow(label: "Confidence", value: model.settingsState.confidenceText)
+                PaneSeparator()
+                PaneControlRow(
                     label: "Background readiness",
                     detail: "Automatic readiness pauses while this is off."
                 ) {
@@ -547,8 +534,29 @@ struct ReadinessPane: View {
                 }
             }
 
-            SettingsSection("Usage window scheduling") {
-                SettingsControlRow(
+            PaneGroup("Usage window scheduling") {
+                PaneControlRow(
+                    label: "Reset estimation",
+                    detail: "How quota window wake candidates are selected.",
+                    placement: .below
+                ) {
+                    Picker(
+                        "Reset estimation",
+                        selection: Binding(
+                            get: { model.settings.readiness.resetEstimationMode },
+                            set: { model.setResetEstimationMode($0) }
+                        )
+                    ) {
+                        Text("Local signals only").tag(ResetEstimationMode.localSignalsOnly)
+                        Text("Allow estimated candidate").tag(ResetEstimationMode.allowFiveHourEstimate)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .frame(maxWidth: 420, alignment: .leading)
+                }
+                PaneSeparator()
+                PaneControlRow(
                     label: "Require active use",
                     detail: "Send only when this Mac appears active."
                 ) {
@@ -562,8 +570,8 @@ struct ReadinessPane: View {
                     .labelsHidden()
                     .toggleStyle(.switch)
                 }
-                SettingsDivider()
-                SettingsControlRow(label: "Idle threshold") {
+                PaneSeparator()
+                PaneControlRow(label: "Idle threshold") {
                     Stepper(
                         "\(model.settings.readiness.idleThresholdSeconds) seconds",
                         value: Binding(
@@ -575,8 +583,8 @@ struct ReadinessPane: View {
                     )
                     .frame(width: 190, alignment: .trailing)
                 }
-                SettingsDivider()
-                SettingsControlRow(label: "Minimum cooldown") {
+                PaneSeparator()
+                PaneControlRow(label: "Minimum cooldown") {
                     Stepper(
                         "\(model.settings.readiness.minimumSendCooldownMinutes) minutes",
                         value: Binding(
@@ -588,27 +596,9 @@ struct ReadinessPane: View {
                     )
                     .frame(width: 190, alignment: .trailing)
                 }
-                SettingsDivider()
-                SettingsControlRow(
-                    label: "Reset estimation",
-                    detail: "How quota window wake candidates are selected."
-                ) {
-                    Picker(
-                        "Reset estimation",
-                        selection: Binding(
-                            get: { model.settings.readiness.resetEstimationMode },
-                            set: { model.setResetEstimationMode($0) }
-                        )
-                    ) {
-                        Text("Local signals only").tag(ResetEstimationMode.localSignalsOnly)
-                        Text("Allow estimated candidate").tag(ResetEstimationMode.allowFiveHourEstimate)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 270, height: 30)
-                }
             }
 
-            SettingsSection("Provider status") {
+            PaneGroup("Provider status") {
                 ForEach(Array(model.settingsState.providerStates.enumerated()), id: \.element.tool) { index, provider in
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 8) {
@@ -621,10 +611,10 @@ struct ReadinessPane: View {
                                 .foregroundStyle(QWSettingsTheme.secondaryText)
                                 .lineLimit(1)
                         }
-                        SettingsRow(label: "Last readiness", value: provider.lastReadinessText)
-                        SettingsRow(label: "Next reset", value: provider.nextResetText)
-                        SettingsRow(label: "Confidence", value: provider.confidenceText)
-                        SettingsRow(label: "Source", value: provider.sourceText)
+                        PaneInlineValue(label: "Last readiness", value: provider.lastReadinessText)
+                        PaneInlineValue(label: "Next reset", value: provider.nextResetText)
+                        PaneInlineValue(label: "Confidence", value: provider.confidenceText)
+                        PaneInlineValue(label: "Source", value: provider.sourceText)
                         Text(provider.detailText)
                             .font(.system(size: 11))
                             .foregroundStyle(QWSettingsTheme.secondaryText)
@@ -635,71 +625,94 @@ struct ReadinessPane: View {
                     .padding(.vertical, 12)
                     .background(QWSettingsTheme.blockRow)
                     if index < model.settingsState.providerStates.count - 1 {
-                        SettingsDivider()
+                        PaneSeparator()
                     }
                 }
             }
 
-            SettingsSection("Actions") {
-                SettingsControlRow(
+            PaneGroup("Actions") {
+                PaneControlRow(
                     label: "Manual actions",
-                    detail: "Run or observe readiness without waiting for the next schedule."
+                    detail: "Run or observe readiness without waiting for the next schedule.",
+                    placement: .fullWidth
                 ) {
-                    HStack(spacing: 8) {
-                        Button {
-                            model.runNow()
-                        } label: {
-                            Label("Send Readiness Now", systemImage: "paperplane")
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            readinessNowButton
+                            observeLastResultButton
                         }
-                        .buttonStyle(QWCommandButtonStyle(prominent: true))
-                        .disabled(!model.popoverState.canRunNow)
 
-                        Button {
-                            model.observeLastResult()
-                        } label: {
-                            Label("Observe Last Result", systemImage: "arrow.triangle.2.circlepath")
+                        VStack(alignment: .trailing, spacing: 8) {
+                            readinessNowButton
+                            observeLastResultButton
                         }
-                        .buttonStyle(QWCommandButtonStyle())
                     }
                 }
             }
         }
     }
+
+    private var readinessNowButton: some View {
+        Button {
+            model.runNow()
+        } label: {
+            Label("Send Readiness Now", systemImage: "paperplane")
+        }
+        .buttonStyle(QWCommandButtonStyle(prominent: true))
+        .disabled(!model.popoverState.canRunNow)
+    }
+
+    private var observeLastResultButton: some View {
+        Button {
+            model.observeLastResult()
+        } label: {
+            Label("Observe Last Result", systemImage: "arrow.triangle.2.circlepath")
+        }
+        .buttonStyle(QWCommandButtonStyle())
+    }
 }
 
 struct PromptPane: View {
     @ObservedObject var model: QuotaWakeAppModel
+    @FocusState private var promptFocused: Bool
 
     var body: some View {
         SettingsPaneLayout(title: "Prompt") {
-            SettingsSection("Readiness prompt") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Readiness prompt")
-                        .font(.system(size: 14, weight: .semibold))
+            PaneGroup("Readiness prompt") {
+                PaneControlRow(
+                    label: "Prompt text",
+                    detail: "Used for readiness prompts sent through enabled installed CLIs.",
+                    placement: .below
+                ) {
                     TextEditor(
                         text: Binding(
                             get: { model.settings.prompt },
                             set: { model.setPrompt($0) }
                         )
                     )
-                    .font(.body)
+                    .font(.system(size: 13))
                     .scrollContentBackground(.hidden)
-                    .padding(10)
-                    .frame(minHeight: 160)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(QWSettingsTheme.input)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(QWSettingsTheme.border, lineWidth: 1)
-                    )
-                    Text("Current preview: \(model.settingsState.promptPreview)")
-                        .font(.caption)
-                        .foregroundStyle(QWSettingsTheme.secondaryText)
+                    .padding(8)
+                    .frame(minHeight: 168)
+                    .background(PaneInputBackground(isFocused: promptFocused))
+                    .focused($promptFocused)
+                    .accessibilityLabel("Readiness prompt")
                 }
-                .padding(14)
-                .background(QWSettingsTheme.blockRow)
+                PaneSeparator()
+                PaneControlRow(
+                    label: "Preview",
+                    detail: "Compact surfaces use the same middle-truncated preview.",
+                    placement: .below
+                ) {
+                    Text(model.settingsState.promptPreview.isEmpty ? "No prompt preview" : model.settingsState.promptPreview)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(QWSettingsTheme.secondaryText)
+                        .lineLimit(3)
+                        .truncationMode(.middle)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
     }
@@ -710,48 +723,211 @@ struct LogsPane: View {
 
     var body: some View {
         SettingsPaneLayout(title: "Logs") {
-            SettingsSection("Run history") {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Time").frame(width: 72, alignment: .leading)
-                        Text("Tool").frame(width: 72, alignment: .leading)
-                        Text("Status").frame(width: 120, alignment: .leading)
-                        Text("Duration").frame(width: 76, alignment: .leading)
-                        Text("Summary").frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(QWSettingsTheme.secondaryText)
+            PaneGroup("Run history") {
+                PaneControlRow(
+                    label: "Entries",
+                    detail: "Latest session readiness runs, newest first.",
+                    placement: .below
+                ) {
+                    LogTable(rows: model.settingsState.logRows)
+                }
+            }
+        }
+    }
+}
 
-                    SettingsDivider()
+struct PaneInputBackground: View {
+    let isFocused: Bool
 
-                    if model.settingsState.logRows.isEmpty {
-                        Text("No runs yet")
-                            .foregroundStyle(QWSettingsTheme.secondaryText)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 24)
+    var body: some View {
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(QWSettingsTheme.input)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(isFocused ? QWSettingsTheme.accent : QWSettingsTheme.border, lineWidth: isFocused ? 2 : 1)
+            )
+    }
+}
+
+private enum LogTableMetrics {
+    static let timeWidth: CGFloat = 76
+    static let toolWidth: CGFloat = 66
+    static let statusWidth: CGFloat = 112
+    static let durationWidth: CGFloat = 78
+    static let exitCodeWidth: CGFloat = 58
+    static let summaryMinWidth: CGFloat = 240
+    static let columnSpacing: CGFloat = 12
+    static let minimumWidth: CGFloat = (
+        timeWidth
+        + toolWidth
+        + statusWidth
+        + durationWidth
+        + exitCodeWidth
+        + summaryMinWidth
+        + (columnSpacing * 5)
+    )
+}
+
+struct LogTable: View {
+    let rows: [LogRowUIState]
+
+    var body: some View {
+        GeometryReader { proxy in
+            let tableWidth = max(proxy.size.width, LogTableMetrics.minimumWidth)
+            ScrollView(.horizontal) {
+                VStack(alignment: .leading, spacing: 0) {
+                    LogTableHeader()
+                    tableSeparator
+                    if rows.isEmpty {
+                        LogTableEmptyState()
+                            .frame(width: tableWidth, alignment: .leading)
+                            .frame(minHeight: 96, alignment: .leading)
                     } else {
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 6) {
-                                ForEach(Array(model.settingsState.logRows.enumerated()), id: \.offset) { _, row in
-                                    HStack(alignment: .top) {
-                                        Text(row.timeText).frame(width: 72, alignment: .leading)
-                                        Text(row.toolText).frame(width: 72, alignment: .leading)
-                                        Text(row.statusText).frame(width: 120, alignment: .leading)
-                                        Text(row.durationText).frame(width: 76, alignment: .leading)
-                                        Text(row.summaryText)
-                                            .lineLimit(2)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
+                        ScrollView(.vertical) {
+                            LazyVStack(alignment: .leading, spacing: 0) {
+                                ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                                    LogTableRow(row: row, isLatest: index == 0)
+                                    if index < rows.count - 1 {
+                                        tableSeparator
                                     }
-                                    .font(.caption)
                                 }
                             }
                         }
                     }
                 }
-                .padding(14)
-                .background(QWSettingsTheme.blockRow)
+                .frame(width: tableWidth, alignment: .leading)
             }
         }
+        .frame(minHeight: tableHeight, maxHeight: tableHeight)
+        .background(QWSettingsTheme.blockRow)
+    }
+
+    private var tableHeight: CGFloat {
+        if rows.isEmpty {
+            return 138
+        }
+        return min(342, CGFloat(rows.count) * 48 + 36)
+    }
+
+    private var tableSeparator: some View {
+        Rectangle()
+            .fill(QWSettingsTheme.border)
+            .frame(height: 1)
+    }
+}
+
+struct LogTableHeader: View {
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: LogTableMetrics.columnSpacing) {
+            LogHeaderCell("Time", width: LogTableMetrics.timeWidth)
+            LogHeaderCell("Tool", width: LogTableMetrics.toolWidth)
+            LogHeaderCell("Status", width: LogTableMetrics.statusWidth)
+            LogHeaderCell("Duration", width: LogTableMetrics.durationWidth)
+            LogHeaderCell("Exit", width: LogTableMetrics.exitCodeWidth)
+            Text("Summary")
+                .frame(minWidth: LogTableMetrics.summaryMinWidth, maxWidth: .infinity, alignment: .leading)
+        }
+        .font(.system(size: 11, weight: .semibold))
+        .foregroundStyle(QWSettingsTheme.secondaryText)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(QWSettingsTheme.blockRowRaised)
+    }
+}
+
+struct LogHeaderCell: View {
+    let title: String
+    let width: CGFloat
+
+    init(_ title: String, width: CGFloat) {
+        self.title = title
+        self.width = width
+    }
+
+    var body: some View {
+        Text(title)
+            .frame(width: width, alignment: .leading)
+    }
+}
+
+struct LogTableRow: View {
+    let row: LogRowUIState
+    let isLatest: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: LogTableMetrics.columnSpacing) {
+            LogCell(row.timeText, width: LogTableMetrics.timeWidth, monospaced: true)
+            LogCell(row.toolText, width: LogTableMetrics.toolWidth)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                StatusDot(tone: row.tone)
+                    .padding(.top, 3)
+                Text(row.statusText)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+            }
+            .frame(width: LogTableMetrics.statusWidth, alignment: .leading)
+            LogCell(row.durationText, width: LogTableMetrics.durationWidth, monospaced: true)
+            LogCell(row.exitCodeText, width: LogTableMetrics.exitCodeWidth, monospaced: true)
+            Text(row.summaryText.isEmpty ? "No summary" : row.summaryText)
+                .lineLimit(3)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .frame(minWidth: LogTableMetrics.summaryMinWidth, maxWidth: .infinity, alignment: .leading)
+                .help(row.summaryText)
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(QWSettingsTheme.primaryText)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(isLatest ? QWSettingsTheme.sidebarSelected.opacity(0.48) : QWSettingsTheme.blockRow)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var accessibilityLabel: String {
+        "\(row.timeText), \(row.toolText), \(row.statusText), duration \(row.durationText), exit \(row.exitCodeText), \(row.summaryText)"
+    }
+}
+
+struct LogCell: View {
+    let value: String
+    let width: CGFloat
+    var monospaced = false
+
+    init(_ value: String, width: CGFloat, monospaced: Bool = false) {
+        self.value = value
+        self.width = width
+        self.monospaced = monospaced
+    }
+
+    var body: some View {
+        Text(value)
+            .font(monospaced ? .system(size: 11, design: .monospaced) : .system(size: 11))
+            .lineLimit(2)
+            .truncationMode(.tail)
+            .frame(width: width, alignment: .leading)
+            .help(value)
+    }
+}
+
+struct LogTableEmptyState: View {
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(QWSettingsTheme.tertiaryText)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("No readiness runs yet")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(QWSettingsTheme.primaryText)
+                Text("New local run results will appear here after a readiness check.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(QWSettingsTheme.secondaryText)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 18)
     }
 }
 
@@ -781,7 +957,7 @@ struct SettingsPaneLayout<Content: View>: View {
     }
 }
 
-struct SettingsSection<Content: View>: View {
+struct PaneGroup<Content: View>: View {
     let title: String
     @ViewBuilder let content: Content
 
@@ -801,15 +977,7 @@ struct SettingsSection<Content: View>: View {
                 content
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(QWSettingsTheme.block)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .stroke(QWSettingsTheme.border, lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .background(QWSettingsTheme.block)
         }
     }
 }
@@ -848,72 +1016,106 @@ struct SettingsStatusBanner<Action: View>: View {
     }
 }
 
-struct SettingsControlRow<Control: View>: View {
+struct PaneControlRow<Control: View>: View {
     let label: String
     var detail: String?
+    var placement: PaneRowControlPlacement
     @ViewBuilder let control: Control
 
-    init(label: String, detail: String? = nil, @ViewBuilder control: () -> Control) {
+    init(
+        label: String,
+        detail: String? = nil,
+        placement: PaneRowControlPlacement = .trailing,
+        @ViewBuilder control: () -> Control
+    ) {
         self.label = label
         self.detail = detail
+        self.placement = placement
         self.control = control()
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 20) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(label)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(QWSettingsTheme.primaryText)
-                if let detail, !detail.isEmpty {
-                    Text(detail)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(QWSettingsTheme.secondaryText)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+        Group {
+            switch placement {
+            case .trailing:
+                trailingRow(controlAlignment: .trailing)
+            case .fullWidth:
+                trailingRow(controlAlignment: .leading)
+            case .below:
+                belowRow
             }
-            .layoutPriority(1)
-
-            Spacer(minLength: 12)
-
-            control
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 11)
-        .frame(minHeight: 58)
+        .padding(.horizontal, PaneRowMetrics.rowHorizontalPadding)
+        .padding(.vertical, PaneRowMetrics.rowVerticalPadding)
+        .frame(minHeight: PaneRowMetrics.rowMinHeight)
         .background(QWSettingsTheme.blockRow)
+    }
+
+    private func trailingRow(controlAlignment: Alignment) -> some View {
+        HStack(alignment: .center, spacing: PaneRowMetrics.labelControlGap) {
+            labelStack
+                .frame(width: PaneRowMetrics.labelWidth, alignment: .leading)
+                .layoutPriority(1)
+            control
+                .frame(maxWidth: .infinity, alignment: controlAlignment)
+                .layoutPriority(2)
+        }
+    }
+
+    private var belowRow: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            labelStack
+            control
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var labelStack: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(QWSettingsTheme.primaryText)
+            if let detail, !detail.isEmpty {
+                Text(detail)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(QWSettingsTheme.secondaryText)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 
-struct SettingsValueRow: View {
+struct PaneValueRow: View {
     let label: String
     var detail: String?
     let value: String
     var monospaced = false
 
     var body: some View {
-        SettingsControlRow(label: label, detail: detail) {
+        PaneControlRow(label: label, detail: detail) {
             Text(value)
                 .font(monospaced ? .system(.caption, design: .monospaced) : .system(size: 13, weight: .semibold))
                 .foregroundStyle(QWSettingsTheme.secondaryText)
                 .lineLimit(2)
                 .truncationMode(.middle)
                 .multilineTextAlignment(.trailing)
-                .frame(maxWidth: 360, alignment: .trailing)
+                .textSelection(.enabled)
+                .help(value)
         }
     }
 }
 
-struct SettingsDivider: View {
+struct PaneSeparator: View {
     var body: some View {
         Rectangle()
             .fill(QWSettingsTheme.border)
             .frame(height: 1)
+            .padding(.leading, PaneRowMetrics.rowHorizontalPadding)
     }
 }
 
-struct SettingsRow: View {
+struct PaneInlineValue: View {
     let label: String
     let value: String
     var monospaced = false
@@ -933,6 +1135,8 @@ struct SettingsRow: View {
         .foregroundStyle(QWSettingsTheme.primaryText)
     }
 }
+
+typealias SettingsRow = PaneInlineValue
 
 struct StatusDot: View {
     let tone: UIStatusTone

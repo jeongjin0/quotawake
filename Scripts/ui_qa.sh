@@ -13,14 +13,15 @@ usage() {
 Usage: Scripts/ui_qa.sh --evidence-dir <dir> [options]
 
 Options:
-  --scenario <name>       popover-settings|missing-cli|first-run|
+  --scenario <name>       popover-settings|settings-empty-logs|missing-cli|first-run|
                           run-now|broken-codex|live-run-now|
                           tool-toggle|normal-launch|
                           reset-due-active|reset-due-idle|
                           unknown-quota|quota-unavailable|
                           limit-reset-observed|
                           migrated-old-settings|
-                          update-available|update-error|full
+                          update-available|update-error|
+                          settings-light|settings-dark|settings-resize|full
   --fake-cli-root <dir>   Fake CLI root for non-live scenarios.
   --claude-path <path>    Explicit Claude CLI path for live-run-now.
   --codex-path <path>     Explicit Codex CLI path for live-run-now.
@@ -43,7 +44,7 @@ need_value() {
 
 valid_scenario() {
   case "$1" in
-    popover-settings|missing-cli|first-run|run-now|broken-codex|live-run-now|tool-toggle|normal-launch|update-available|update-error|reset-due-active|reset-due-idle|unknown-quota|quota-unavailable|limit-reset-observed|migrated-old-settings|full)
+    popover-settings|settings-empty-logs|missing-cli|first-run|run-now|broken-codex|live-run-now|tool-toggle|normal-launch|update-available|update-error|settings-light|settings-dark|settings-resize|reset-due-active|reset-due-idle|unknown-quota|quota-unavailable|limit-reset-observed|migrated-old-settings|full)
       return 0
       ;;
     *)
@@ -127,6 +128,7 @@ if [[ "${SCENARIO}" == "full" ]]; then
   "${ROOT_DIR}/Scripts/package_app.sh" debug >/dev/null
   FAKE_CLI_ROOT="${FAKE_CLI_ROOT:-${ROOT_DIR}/.build/fake-cli}"
   "${BASH_SOURCE[0]}" --fake-cli-root "${FAKE_CLI_ROOT}" --evidence-dir "${EVIDENCE_DIR}" --scenario popover-settings
+  "${BASH_SOURCE[0]}" --fake-cli-root "${FAKE_CLI_ROOT}" --evidence-dir "${EVIDENCE_DIR}" --scenario settings-empty-logs
   "${BASH_SOURCE[0]}" --fake-cli-root "${FAKE_CLI_ROOT}" --evidence-dir "${EVIDENCE_DIR}" --scenario missing-cli
   "${BASH_SOURCE[0]}" --fake-cli-root "${FAKE_CLI_ROOT}" --evidence-dir "${EVIDENCE_DIR}" --scenario first-run
   "${BASH_SOURCE[0]}" --fake-cli-root "${FAKE_CLI_ROOT}" --evidence-dir "${EVIDENCE_DIR}" --scenario run-now
@@ -141,6 +143,9 @@ if [[ "${SCENARIO}" == "full" ]]; then
   "${BASH_SOURCE[0]}" --fake-cli-root "${FAKE_CLI_ROOT}" --evidence-dir "${EVIDENCE_DIR}/normal-launch" --scenario normal-launch
   "${BASH_SOURCE[0]}" --fake-cli-root "${FAKE_CLI_ROOT}" --evidence-dir "${EVIDENCE_DIR}" --scenario update-available --update-fixture "${ROOT_DIR}/Tests/Fixtures/releases/latest-newer.json"
   "${BASH_SOURCE[0]}" --fake-cli-root "${FAKE_CLI_ROOT}" --evidence-dir "${EVIDENCE_DIR}" --scenario update-error --update-fixture "${ROOT_DIR}/Tests/Fixtures/releases/latest-malformed.json"
+  "${BASH_SOURCE[0]}" --fake-cli-root "${FAKE_CLI_ROOT}" --evidence-dir "${EVIDENCE_DIR}" --scenario settings-light
+  "${BASH_SOURCE[0]}" --fake-cli-root "${FAKE_CLI_ROOT}" --evidence-dir "${EVIDENCE_DIR}" --scenario settings-dark
+  "${BASH_SOURCE[0]}" --fake-cli-root "${FAKE_CLI_ROOT}" --evidence-dir "${EVIDENCE_DIR}" --scenario settings-resize
   echo "UI QA scenario full complete"
   exit 0
 fi
@@ -232,6 +237,9 @@ case "${SCENARIO}" in
     test -s "${EVIDENCE_DIR}/settings-readiness.png"
     test -s "${EVIDENCE_DIR}/settings-prompt.png"
     test -s "${EVIDENCE_DIR}/settings-logs.png"
+    ;;
+  settings-empty-logs)
+    test -s "${EVIDENCE_DIR}/settings-logs-empty.png"
     ;;
   missing-cli)
     test -s "${EVIDENCE_DIR}/missing-cli.png"
@@ -392,6 +400,27 @@ case "${SCENARIO}" in
   update-error)
     test -s "${EVIDENCE_DIR}/settings-update-error.png"
     test ! -e "${EVIDENCE_DIR}/opened-url.txt"
+    ;;
+  settings-light)
+    test -s "${EVIDENCE_DIR}/settings-light.png"
+    test -s "${EVIDENCE_DIR}/settings-tools-light.png"
+    test -s "${EVIDENCE_DIR}/settings-readiness-light.png"
+    test -s "${EVIDENCE_DIR}/settings-prompt-light.png"
+    test -s "${EVIDENCE_DIR}/settings-logs-light.png"
+    ;;
+  settings-dark)
+    test -s "${EVIDENCE_DIR}/settings-dark.png"
+    test -s "${EVIDENCE_DIR}/settings-tools-dark.png"
+    test -s "${EVIDENCE_DIR}/settings-readiness-dark.png"
+    test -s "${EVIDENCE_DIR}/settings-prompt-dark.png"
+    test -s "${EVIDENCE_DIR}/settings-logs-dark.png"
+    ;;
+  settings-resize)
+    test -s "${EVIDENCE_DIR}/settings-resize-720x520.png"
+    test -s "${EVIDENCE_DIR}/settings-tools-resize-720x520.png"
+    test -s "${EVIDENCE_DIR}/settings-readiness-resize-720x520.png"
+    test -s "${EVIDENCE_DIR}/settings-prompt-resize-720x520.png"
+    test -s "${EVIDENCE_DIR}/settings-logs-resize-720x520.png"
     ;;
 esac
 
