@@ -164,7 +164,7 @@ final class QuotaWakeAppModel: ObservableObject {
         // Assign @Published properties only on real changes; unconditional
         // reassignment re-rendered the popover and settings on every poll
         // tick even when nothing changed.
-        let loadedSettings = (try? settingsStore.load()) ?? .default
+        let loadedSettings = syncLaunchAtLoginApproval((try? settingsStore.load()) ?? .default)
         if settings != loadedSettings {
             settings = loadedSettings
         }
@@ -295,6 +295,22 @@ final class QuotaWakeAppModel: ObservableObject {
                 self.refresh()
             }
         }
+    }
+
+    // A registration that ends in requiresApproval stores the flag as false;
+    // when the user later approves in System Settings nothing re-checked the
+    // status, so background readiness stayed off until the toggle was flipped
+    // again. Treat an OS-reported enabled state as approval and persist it.
+    private func syncLaunchAtLoginApproval(_ settings: AppSettings) -> AppSettings {
+        guard !settings.background.launchAtLoginEnabled,
+              let status = try? LaunchAtLoginManager.mainApp.currentStatus(),
+              status == .enabled else {
+            return settings
+        }
+        var synced = settings
+        synced.background.launchAtLoginEnabled = true
+        try? settingsStore.save(synced)
+        return synced
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
