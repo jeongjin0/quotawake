@@ -13,7 +13,8 @@ usage() {
 Usage: Scripts/ui_qa.sh --evidence-dir <dir> [options]
 
 Options:
-  --scenario <name>       popover-settings|settings-empty-logs|missing-cli|first-run|
+  --scenario <name>       popover-settings|settings-only|settings-empty-logs|
+                          missing-cli|first-run|
                           run-now|broken-codex|live-run-now|
                           tool-toggle|normal-launch|
                           reset-due-active|reset-due-idle|
@@ -44,7 +45,7 @@ need_value() {
 
 valid_scenario() {
   case "$1" in
-    popover-settings|settings-empty-logs|missing-cli|first-run|run-now|broken-codex|live-run-now|tool-toggle|normal-launch|update-available|update-error|settings-light|settings-dark|settings-resize|reset-due-active|reset-due-idle|unknown-quota|quota-unavailable|limit-reset-observed|migrated-old-settings|full)
+    popover-settings|settings-only|settings-empty-logs|missing-cli|first-run|run-now|broken-codex|live-run-now|tool-toggle|normal-launch|update-available|update-error|settings-light|settings-dark|settings-resize|reset-due-active|reset-due-idle|unknown-quota|quota-unavailable|limit-reset-observed|migrated-old-settings|full)
       return 0
       ;;
     *)
@@ -201,16 +202,23 @@ set -e
 
 plutil -extract LSUIElement raw -o - "${APP_DIR}/Contents/Info.plist" >"${EVIDENCE_DIR}/dock-check.txt"
 if [[ "${SCENARIO}" == "live-run-now" ]]; then
-  if ! pgrep -x "QuotaWake" >"${EVIDENCE_DIR}/process-before-cleanup.txt"; then
+  # Match only this checkout's debug binary so cleanup never kills a
+  # user-installed QuotaWake.app instance running from another path.
+  if ! pgrep -f "${APP_BIN}" >"${EVIDENCE_DIR}/process-before-cleanup.txt"; then
     echo "none" >"${EVIDENCE_DIR}/process-before-cleanup.txt"
   fi
   if [[ "$(<"${EVIDENCE_DIR}/process-before-cleanup.txt")" != "none" ]]; then
     while IFS= read -r pid; do
       kill "${pid}" 2>/dev/null || true
     done <"${EVIDENCE_DIR}/process-before-cleanup.txt"
-    sleep 1
+    for _ in 1 2 3 4 5; do
+      if ! pgrep -f "${APP_BIN}" >/dev/null; then
+        break
+      fi
+      sleep 1
+    done
   fi
-  if ! pgrep -x "QuotaWake" >"${EVIDENCE_DIR}/process-after-cleanup.txt"; then
+  if ! pgrep -f "${APP_BIN}" >"${EVIDENCE_DIR}/process-after-cleanup.txt"; then
     echo "none" >"${EVIDENCE_DIR}/process-after-cleanup.txt"
   fi
   cp "${EVIDENCE_DIR}/process-after-cleanup.txt" "${EVIDENCE_DIR}/process.txt"
@@ -230,6 +238,13 @@ if [[ "${APP_STATUS}" -ne 0 ]]; then
 fi
 
 case "${SCENARIO}" in
+  settings-only)
+    test -s "${EVIDENCE_DIR}/settings.png"
+    test -s "${EVIDENCE_DIR}/settings-tools.png"
+    test -s "${EVIDENCE_DIR}/settings-readiness.png"
+    test -s "${EVIDENCE_DIR}/settings-prompt.png"
+    test -s "${EVIDENCE_DIR}/settings-logs.png"
+    ;;
   popover-settings)
     test -s "${EVIDENCE_DIR}/popover.png"
     test -s "${EVIDENCE_DIR}/settings.png"

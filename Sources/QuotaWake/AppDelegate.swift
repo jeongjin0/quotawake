@@ -634,7 +634,7 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         try fileManager.createDirectory(at: captureDirectory, withIntermediateDirectories: true)
 
         for tool in ToolKind.allCases {
-            _ = try makeFakeExecutable(
+            try UIQASupport.makeFakeExecutable(
                 tool: tool,
                 directory: fakeRoot,
                 captureDirectory: captureDirectory
@@ -671,8 +671,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
             )
         }
         let logs = try logStore.readAll().sorted { $0.tool.rawValue < $1.tool.rawValue }
-        try copyLogs(from: paths.logsDirectory, to: evidenceDirectory.appendingPathComponent(logFileName))
-        try writeRunSummary(
+        try UIQASupport.copyLogs(from: paths.logsDirectory, to: evidenceDirectory.appendingPathComponent(logFileName))
+        try UIQASupport.writeRunSummary(
             logs: logs,
             to: evidenceDirectory.appendingPathComponent(logFileName.replacingOccurrences(of: ".jsonl", with: "-summary.txt"))
         )
@@ -699,12 +699,12 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         try fileManager.removeItemIfExists(at: appSupport)
         try fileManager.createDirectory(at: captureDirectory, withIntermediateDirectories: true)
 
-        _ = try makeFakeExecutable(
+        try UIQASupport.makeFakeExecutable(
             tool: .claude,
             directory: fakeRoot,
             captureDirectory: captureDirectory
         )
-        _ = try makeBrokenFakeCodexExecutable(
+        try UIQASupport.makeBrokenFakeCodexExecutable(
             directory: fakeRoot,
             captureDirectory: captureDirectory
         )
@@ -742,8 +742,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         )
 
         let logs = try logStore.readAll().sorted { $0.tool.rawValue < $1.tool.rawValue }
-        try copyLogs(from: paths.logsDirectory, to: evidenceDirectory.appendingPathComponent(logFileName))
-        try writeRunSummary(
+        try UIQASupport.copyLogs(from: paths.logsDirectory, to: evidenceDirectory.appendingPathComponent(logFileName))
+        try UIQASupport.writeRunSummary(
             logs: logs,
             to: evidenceDirectory.appendingPathComponent(logFileName.replacingOccurrences(of: ".jsonl", with: "-summary.txt"))
         )
@@ -777,7 +777,7 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         try fileManager.createDirectory(at: captureDirectory, withIntermediateDirectories: true)
 
         for tool in ToolKind.allCases {
-            _ = try makeFakeExecutable(tool: tool, directory: fakeRoot, captureDirectory: captureDirectory)
+            try UIQASupport.makeFakeExecutable(tool: tool, directory: fakeRoot, captureDirectory: captureDirectory)
         }
 
         var scenarioSettings = settings
@@ -905,8 +905,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         }
 
         let logs = try logStore.readAll().sorted { $0.tool.rawValue < $1.tool.rawValue }
-        try copyLogs(from: paths.logsDirectory, to: evidenceDirectory.appendingPathComponent("\(scenario).jsonl"))
-        try writeRunSummary(logs: logs, to: evidenceDirectory.appendingPathComponent("\(scenario)-summary.txt"))
+        try UIQASupport.copyLogs(from: paths.logsDirectory, to: evidenceDirectory.appendingPathComponent("\(scenario).jsonl"))
+        try UIQASupport.writeRunSummary(logs: logs, to: evidenceDirectory.appendingPathComponent("\(scenario)-summary.txt"))
         try writeReadinessScenarioReceipt(
             scenario: scenario,
             logs: logs,
@@ -971,8 +971,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         }
 
         let logs = try logStore.readAll().sorted { $0.tool.rawValue < $1.tool.rawValue }
-        try copyLogs(from: paths.logsDirectory, to: evidenceDirectory.appendingPathComponent(logFileName))
-        try writeRunSummary(
+        try UIQASupport.copyLogs(from: paths.logsDirectory, to: evidenceDirectory.appendingPathComponent(logFileName))
+        try UIQASupport.writeRunSummary(
             logs: logs,
             to: evidenceDirectory.appendingPathComponent(logFileName.replacingOccurrences(of: ".jsonl", with: "-summary.txt"))
         )
@@ -1021,57 +1021,6 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         try (lines.joined(separator: "\n") + "\n").write(to: outputURL, atomically: true, encoding: .utf8)
     }
 
-    private func makeFakeExecutable(
-        tool: ToolKind,
-        directory: URL,
-        captureDirectory: URL
-    ) throws -> URL {
-        let executable = directory.appendingPathComponent(tool.rawValue, isDirectory: false)
-        let capturePath = qaShellQuote(captureDirectory.path)
-        let toolName = qaShellQuote(tool.rawValue)
-        let script = """
-        #!/bin/sh
-        name=\(toolName)
-        capture_dir=\(capturePath)
-        printf '%s\\n' "$PWD" > "$capture_dir/$name.cwd"
-        printf '%s\\n' "$PATH" > "$capture_dir/$name.path"
-        : > "$capture_dir/$name.args"
-        for arg in "$@"; do
-          printf '%s\\n' "$arg" >> "$capture_dir/$name.args"
-        done
-        printf 'ok\\n'
-        """
-        try script.write(to: executable, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
-        return executable
-    }
-
-    private func makeBrokenFakeCodexExecutable(
-        directory: URL,
-        captureDirectory: URL
-    ) throws -> URL {
-        let executable = directory.appendingPathComponent(ToolKind.codex.rawValue, isDirectory: false)
-        let capturePath = qaShellQuote(captureDirectory.path)
-        let script = """
-        #!/bin/sh
-        capture_dir=\(capturePath)
-        if [ "${1:-}" = "--version" ]; then
-          printf 'codex --version local probe\\n' >> "$capture_dir/codex.probe"
-          printf 'codex local resolution failure\\n' >&2
-          exit 127
-        fi
-        : > "$capture_dir/codex.args"
-        for arg in "$@"; do
-          printf '%s\\n' "$arg" >> "$capture_dir/codex.args"
-        done
-        printf 'unexpected prompt execution\\n' >&2
-        exit 127
-        """
-        try script.write(to: executable, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
-        return executable
-    }
-
     private func writeBrokenCodexResolutionSummary(
         command: ResolvedToolCommand,
         logs: [RunLogEntry],
@@ -1090,28 +1039,6 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
             "providerCLI: fake-local-only"
         ]
         try (lines.joined(separator: "\n") + "\n").write(to: outputURL, atomically: true, encoding: .utf8)
-    }
-
-    private func copyLogs(from logsDirectory: URL, to outputURL: URL) throws {
-        let logFiles = try FileManager.default.contentsOfDirectory(
-            at: logsDirectory,
-            includingPropertiesForKeys: nil
-        )
-        .filter { $0.pathExtension == "jsonl" }
-        .sorted { $0.lastPathComponent < $1.lastPathComponent }
-
-        var output = Data()
-        for logFile in logFiles {
-            output.append(try Data(contentsOf: logFile))
-        }
-        try output.write(to: outputURL, options: [.atomic])
-    }
-
-    private func writeRunSummary(logs: [RunLogEntry], to outputURL: URL) throws {
-        let summary = logs
-            .map { "\($0.tool.rawValue) \($0.status.rawValue) \($0.exitCode.map(String.init) ?? "-")" }
-            .joined(separator: "\n")
-        try (summary + "\n").write(to: outputURL, atomically: true, encoding: .utf8)
     }
 
     private func makeReadinessQuotaStates(scenario: String, now: Date, resetAt: Date) -> [QuotaWindowState] {

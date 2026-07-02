@@ -8,6 +8,81 @@ func qaShellQuote(_ value: String) -> String {
     "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
 }
 
+// Single home for QA evidence helpers used by both the normal-launch QA path
+// and the --ui-qa scenario runner, so the two paths can never verify
+// different fake CLIs or summary formats.
+enum UIQASupport {
+    @discardableResult
+    static func makeFakeExecutable(tool: ToolKind, directory: URL, captureDirectory: URL) throws -> URL {
+        try FileManager.default.createDirectory(at: captureDirectory, withIntermediateDirectories: true)
+        let executable = directory.appendingPathComponent(tool.rawValue, isDirectory: false)
+        let capturePath = qaShellQuote(captureDirectory.path)
+        let toolName = qaShellQuote(tool.rawValue)
+        let script = """
+        #!/bin/sh
+        name=\(toolName)
+        capture_dir=\(capturePath)
+        printf '%s\\n' "$PWD" > "$capture_dir/$name.cwd"
+        printf '%s\\n' "$PATH" > "$capture_dir/$name.path"
+        : > "$capture_dir/$name.args"
+        for arg in "$@"; do
+          printf '%s\\n' "$arg" >> "$capture_dir/$name.args"
+        done
+        printf 'ok\\n'
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        return executable
+    }
+
+    @discardableResult
+    static func makeBrokenFakeCodexExecutable(directory: URL, captureDirectory: URL) throws -> URL {
+        try FileManager.default.createDirectory(at: captureDirectory, withIntermediateDirectories: true)
+        let executable = directory.appendingPathComponent(ToolKind.codex.rawValue, isDirectory: false)
+        let capturePath = qaShellQuote(captureDirectory.path)
+        let script = """
+        #!/bin/sh
+        capture_dir=\(capturePath)
+        if [ "${1:-}" = "--version" ]; then
+          printf 'codex --version local probe\\n' >> "$capture_dir/codex.probe"
+          printf 'codex local resolution failure\\n' >&2
+          exit 127
+        fi
+        : > "$capture_dir/codex.args"
+        for arg in "$@"; do
+          printf '%s\\n' "$arg" >> "$capture_dir/codex.args"
+        done
+        printf 'unexpected prompt execution\\n' >&2
+        exit 127
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        return executable
+    }
+
+    static func copyLogs(from logsDirectory: URL, to outputURL: URL) throws {
+        let logFiles = ((try? FileManager.default.contentsOfDirectory(
+            at: logsDirectory,
+            includingPropertiesForKeys: nil
+        )) ?? [])
+        .filter { $0.pathExtension == "jsonl" }
+        .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+        var output = Data()
+        for logFile in logFiles {
+            output.append(try Data(contentsOf: logFile))
+        }
+        try output.write(to: outputURL, options: [.atomic])
+    }
+
+    static func writeRunSummary(logs: [RunLogEntry], to outputURL: URL) throws {
+        let summary = logs
+            .map { "\($0.tool.rawValue) \($0.status.rawValue) \($0.exitCode.map(String.init) ?? "-")" }
+            .joined(separator: "\n")
+        try (summary + "\n").write(to: outputURL, atomically: true, encoding: .utf8)
+    }
+}
+
 struct NormalLaunchQAConfig {
     let evidenceDirectory: URL
     let fakeCLIRoot: URL
@@ -46,8 +121,8 @@ struct NormalLaunchQAConfig {
         try fileManager.removeItemIfExists(at: captureDirectory)
         try fileManager.removeItemIfExists(at: paths.applicationSupportDirectory)
         try fileManager.createDirectory(at: fakeCLIRoot, withIntermediateDirectories: true)
-        try Self.makeFakeExecutable(tool: .claude, directory: fakeCLIRoot, captureDirectory: captureDirectory)
-        try Self.makeFakeExecutable(tool: .codex, directory: fakeCLIRoot, captureDirectory: captureDirectory)
+        try UIQASupport.makeFakeExecutable(tool: .claude, directory: fakeCLIRoot, captureDirectory: captureDirectory)
+        try UIQASupport.makeFakeExecutable(tool: .codex, directory: fakeCLIRoot, captureDirectory: captureDirectory)
 
         let settings = AppSettings(firstRunCompleted: true)
         try SettingsStore(paths: paths).save(settings)
@@ -95,8 +170,8 @@ struct NormalLaunchQAConfig {
                 to: evidenceDirectory.appendingPathComponent("status-item-image.png")
             )
         }
-        try Self.copyLogs(from: paths.logsDirectory, to: evidenceDirectory.appendingPathComponent("normal-launch.jsonl"))
-        try Self.writeRunSummary(
+        try UIQASupport.copyLogs(from: paths.logsDirectory, to: evidenceDirectory.appendingPathComponent("normal-launch.jsonl"))
+        try UIQASupport.writeRunSummary(
             logs: storedLogs,
             to: evidenceDirectory.appendingPathComponent("normal-launch-summary.txt")
         )
@@ -104,27 +179,6 @@ struct NormalLaunchQAConfig {
 
     private var captureDirectory: URL {
         evidenceDirectory.appendingPathComponent("normal-captures", isDirectory: true)
-    }
-
-    private static func makeFakeExecutable(tool: ToolKind, directory: URL, captureDirectory: URL) throws {
-        try FileManager.default.createDirectory(at: captureDirectory, withIntermediateDirectories: true)
-        let executable = directory.appendingPathComponent(tool.rawValue, isDirectory: false)
-        let capturePath = qaShellQuote(captureDirectory.path)
-        let toolName = qaShellQuote(tool.rawValue)
-        let script = """
-        #!/bin/sh
-        name=\(toolName)
-        capture_dir=\(capturePath)
-        printf '%s\\n' "$PWD" > "$capture_dir/$name.cwd"
-        printf '%s\\n' "$PATH" > "$capture_dir/$name.path"
-        : > "$capture_dir/$name.args"
-        for arg in "$@"; do
-          printf '%s\\n' "$arg" >> "$capture_dir/$name.args"
-        done
-        printf 'ok\\n'
-        """
-        try script.write(to: executable, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
     }
 
     private static func writePNG(image: NSImage, to url: URL) throws {
@@ -136,28 +190,6 @@ struct NormalLaunchQAConfig {
             throw UIQAError.pngCreationFailed
         }
         try data.write(to: url, options: [.atomic])
-    }
-
-    private static func copyLogs(from logsDirectory: URL, to outputURL: URL) throws {
-        let logFiles = ((try? FileManager.default.contentsOfDirectory(
-            at: logsDirectory,
-            includingPropertiesForKeys: nil
-        )) ?? [])
-        .filter { $0.pathExtension == "jsonl" }
-        .sorted { $0.lastPathComponent < $1.lastPathComponent }
-
-        var output = Data()
-        for logFile in logFiles {
-            output.append(try Data(contentsOf: logFile))
-        }
-        try output.write(to: outputURL, options: [.atomic])
-    }
-
-    private static func writeRunSummary(logs: [RunLogEntry], to outputURL: URL) throws {
-        let summary = logs
-            .map { "\($0.tool.rawValue) \($0.status.rawValue) \($0.exitCode.map(String.init) ?? "-")" }
-            .joined(separator: "\n")
-        try (summary + "\n").write(to: outputURL, atomically: true, encoding: .utf8)
     }
 }
 
@@ -192,9 +224,17 @@ struct UIQAConfig {
         "migrated-old-settings"
     ]
 
+    // Once `--ui-qa` is present, any malformed invocation must exit instead of
+    // returning nil: a nil config falls through to a normal launch that uses
+    // the real Application Support directory and starts the readiness poller.
     static func parse(arguments: [String]) -> UIQAConfig? {
-        guard let modeIndex = arguments.firstIndex(of: "--ui-qa"), modeIndex < arguments.count else {
+        guard let modeIndex = arguments.firstIndex(of: "--ui-qa") else {
             return nil
+        }
+
+        func failUsage(_ message: String) -> Never {
+            FileHandle.standardError.write(Data("\(message)\n".utf8))
+            exit(64)
         }
 
         var scenario = "popover-settings"
@@ -205,37 +245,38 @@ struct UIQAConfig {
         var codexPath: URL?
         var index = modeIndex + 1
 
+        func nextValue(for flag: String) -> String {
+            guard index + 1 < arguments.count else {
+                failUsage("\(flag) requires a value")
+            }
+            defer { index += 2 }
+            return arguments[index + 1]
+        }
+
         while index < arguments.count {
             switch arguments[index] {
-            case "--scenario" where index + 1 < arguments.count:
-                scenario = arguments[index + 1]
-                index += 2
-            case "--evidence-dir" where index + 1 < arguments.count:
-                evidenceDirectory = URL(fileURLWithPath: arguments[index + 1], isDirectory: true)
-                index += 2
-            case "--fake-cli-root" where index + 1 < arguments.count:
-                fakeCLIRoot = URL(fileURLWithPath: arguments[index + 1], isDirectory: true)
-                index += 2
-            case "--update-fixture" where index + 1 < arguments.count:
-                updateFixture = URL(fileURLWithPath: arguments[index + 1], isDirectory: false)
-                index += 2
-            case "--claude-path" where index + 1 < arguments.count:
-                claudePath = URL(fileURLWithPath: arguments[index + 1], isDirectory: false)
-                index += 2
-            case "--codex-path" where index + 1 < arguments.count:
-                codexPath = URL(fileURLWithPath: arguments[index + 1], isDirectory: false)
-                index += 2
+            case "--scenario":
+                scenario = nextValue(for: "--scenario")
+            case "--evidence-dir":
+                evidenceDirectory = URL(fileURLWithPath: nextValue(for: "--evidence-dir"), isDirectory: true)
+            case "--fake-cli-root":
+                fakeCLIRoot = URL(fileURLWithPath: nextValue(for: "--fake-cli-root"), isDirectory: true)
+            case "--update-fixture":
+                updateFixture = URL(fileURLWithPath: nextValue(for: "--update-fixture"), isDirectory: false)
+            case "--claude-path":
+                claudePath = URL(fileURLWithPath: nextValue(for: "--claude-path"), isDirectory: false)
+            case "--codex-path":
+                codexPath = URL(fileURLWithPath: nextValue(for: "--codex-path"), isDirectory: false)
             default:
-                index += 1
+                failUsage("unknown --ui-qa argument: \(arguments[index])")
             }
         }
 
         guard let evidenceDirectory else {
-            return nil
+            failUsage("--ui-qa requires --evidence-dir")
         }
         guard validScenarios.contains(scenario) else {
-            FileHandle.standardError.write(Data("invalid --scenario: \(scenario)\n".utf8))
-            exit(64)
+            failUsage("invalid --scenario: \(scenario)")
         }
         return UIQAConfig(
             scenario: scenario,
