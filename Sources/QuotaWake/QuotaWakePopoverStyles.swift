@@ -1,7 +1,7 @@
 import QuotaWakeCore
 import SwiftUI
 
-/// Horizontal footer menu item (Settings / About / Quit).
+/// Horizontal footer menu item (Reload / Pause / Settings / Quit).
 struct QWFooterChipStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     var destructive = false
@@ -44,36 +44,6 @@ struct QWInlineChipButtonStyle: ButtonStyle {
 }
 
 extension UIStatusTone {
-    var qwStatusImage: String {
-        switch self {
-        case .success:
-            return "checkmark.circle.fill"
-        case .warning:
-            return "exclamationmark.triangle.fill"
-        case .error:
-            return "xmark.octagon.fill"
-        case .info:
-            return "clock.arrow.circlepath"
-        case .neutral:
-            return "circle"
-        }
-    }
-
-    var qwStatusColor: Color {
-        switch self {
-        case .neutral:
-            return QWTheme.secondaryText
-        case .success:
-            return QWTheme.success
-        case .warning:
-            return QWTheme.warning
-        case .error:
-            return QWTheme.error
-        case .info:
-            return QWTheme.info
-        }
-    }
-
     /// Redesign v2 chip/pill color for the popover's fixed light mode.
     var qwPillColor: Color {
         switch self {
@@ -101,15 +71,6 @@ extension ProviderReadinessUIState {
         }
     }
 
-    var wash: Color {
-        switch tool {
-        case .claude:
-            return QWTheme.claudeWash
-        case .codex:
-            return QWTheme.codexWash
-        }
-    }
-
     var monogram: String {
         switch tool {
         case .claude:
@@ -117,14 +78,6 @@ extension ProviderReadinessUIState {
         case .codex:
             return "X"
         }
-    }
-
-    var usedFraction: Double? {
-        usedPercent.map { min(max($0, 0), 100) / 100 }
-    }
-
-    var weeklyFraction: Double? {
-        weeklyUsedPercent.map { min(max($0, 0), 100) / 100 }
     }
 
     /// Whether the 5h window has a usable local quota signal (drives striped vs filled bar).
@@ -152,13 +105,6 @@ extension ProviderReadinessUIState {
         return "Unknown"
     }
 
-    /// "58% quota left" — retained for summary surfaces outside the quota-window row.
-    var fiveHourLeftText: String {
-        if let remainingPercent { return "\(Self.percentText(remainingPercent)) quota left" }
-        if let usedPercent { return "\(Self.percentText(100 - usedPercent)) quota left" }
-        return quotaValueText
-    }
-
     /// The 5h/window reset footnote shown inside the 5h quota-window section.
     var fiveHourResetFootnote: String? {
         switch resetCountdownText {
@@ -169,18 +115,6 @@ extension ProviderReadinessUIState {
         default:
             return "Resets in \(resetCountdownText)"
         }
-    }
-
-    var quotaValueText: String {
-        remainingPercent.map { "\(Self.percentText($0)) left" } ?? quotaText
-    }
-
-    var quotaUsedText: String {
-        usedPercent.map { "\(Self.percentText($0)) used" } ?? "No local usage"
-    }
-
-    var quotaRemainingText: String {
-        remainingPercent.map { "\(Self.percentText($0)) left" } ?? "Unknown left"
     }
 
     private static func percentText(_ value: Double) -> String {
