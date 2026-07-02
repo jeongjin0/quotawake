@@ -7,9 +7,11 @@ build/QA commands live in `DEVELOPMENT.md`.
 
 - `QuotaWakeCore` (library): all decision logic, parsing, persistence, and
   process execution. Fully covered by `Tests/QuotaWakeCoreTests`.
-- `QuotaWake` (executable): AppKit/SwiftUI shell — app delegate, menu bar
-  status item, popover, Settings and first-run windows, and a `#if DEBUG`
-  UI-QA harness. `main.swift` holds the app model and views.
+- `QuotaWake` (executable): AppKit/SwiftUI shell — `AppModel.swift` (view
+  model), `AppDelegate.swift` (status item, popover/window wiring),
+  `SettingsViews.swift`, `FirstRunViews.swift`, the popover view files,
+  `DebugUIQA.swift` (`#if DEBUG` UI-QA harness), and a 9-line `main.swift`
+  entry point.
 
 ## Runtime flow
 
