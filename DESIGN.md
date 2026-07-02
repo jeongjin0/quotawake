@@ -31,11 +31,12 @@ QuotaWake feels like a quiet Mac utility: compact, trustworthy, and easy to scan
 
 ### Rules
 
-- The shipped app uses fixed appearances by surface: the menu bar popover is
-  rendered in a fixed light glass theme (`QWTheme`) and the Settings/first-run
-  windows in a fixed dark theme (`QWSettingsTheme`). Color values for these
-  themes are defined once as named constants in the theme types, not scattered
-  per-view.
+- The shipped app uses surface-specific appearance rules: the menu bar popover
+  renders in a fixed light glass theme (`QWTheme`), while the Settings window
+  follows the active macOS appearance through system colors in
+  `QWSettingsTheme`. Production Settings views must not force `.light` or
+  `.dark`; UI QA may render both modes explicitly for evidence. Color values are
+  defined once as named constants in the theme types, not scattered per-view.
 - Provider identity accents are fixed brand values: Claude `#D97757` (warm
   coral), Codex `#0D0D0D` (near-black). They are identity tokens, not status
   tokens.
@@ -86,9 +87,12 @@ All spacing derives from a 4pt base.
 ### Layout
 
 - Popover: fixed 360x580pt so status changes never cause resize jitter.
-- Settings window: 980x680pt default, 900x620pt minimum. The first-run setup window uses 720x520pt minimum.
-- Use native sidebar or tab-like section navigation for Settings, not nested cards.
+- Settings window: 980x680pt default, 720x520pt minimum. The first-run setup window uses 720x520pt minimum.
+- Use a native sidebar-list structure for Settings, not a rounded sidebar island, nested cards, or tab-like marketing panels.
 - Rows use stable min heights so status changes do not shift the whole view.
+- Settings rows use a stable label/control column rhythm; long controls can move
+  below their labels, but they must not overlap adjacent values or resize the
+  window.
 - Provider quota cards use a stable compact footprint: provider header, quota progress bar, reset countdown line, and only conditional diagnostic detail.
 - The bottom menu footer is separated from provider content by a hairline divider and uses compact icon+text chips: Reload, Pause/Resume, and Settings grouped at the leading edge, Quit at the trailing edge (see Popover Menu Footer below).
 
@@ -96,7 +100,9 @@ All spacing derives from a 4pt base.
 
 - No nested UI cards. Use grouped rows, dividers, native `Form`, `Table`, and `GroupBox` patterns.
 - Prefer dense, organized information over landing-page spacing.
-- Long paths and summaries must truncate in the middle or tail with tooltips/copy affordances later.
+- Long paths, prompts, and summaries must truncate in the middle or tail with
+  tooltips/copy affordances later. They must remain readable at the 720x520pt
+  Settings minimum.
 - Do not build nested card stacks in the popover; provider quota cards sit directly on the glass shell.
 
 ## 5. Components
@@ -153,17 +159,21 @@ All spacing derives from a 4pt base.
 
 - **Structure**: sidebar section list plus detail pane, or equivalent native Settings grouping.
 - **Variants**: General, Tools, Window Readiness, Prompt, Logs.
-- **Spacing**: `space6` outer padding, `space4` group padding.
-- **States**: normal, error banner, disabled controls.
+- **Spacing**: `space6` outer padding, `space4` group padding, 240pt label column for standard rows, compact 52pt row minimums.
+- **States**: normal, error banner, disabled controls, pressed buttons, focused text inputs, light appearance, dark appearance, and 720x520pt resize minimum.
 - **Accessibility**: each control has a visible label and native focus ring.
+- **Rules**: segmented controls and multiline editors use below-label placement.
+  General toggles, steppers, and short actions use trailing placement. Action
+  groups may use full-width placement when buttons need to wrap.
 
 ### Log Table
 
 - **Structure**: time, tool, status, duration, exit code, summary.
 - **Variants**: empty, populated, error rows.
-- **Spacing**: native table row metrics.
+- **Spacing**: native list-style row metrics with stable column widths and a
+  horizontal scroll fallback at the Settings minimum.
 - **States**: selected row, empty state.
-- **Accessibility**: column headers remain visible and summaries are text, not color-only.
+- **Accessibility**: column headers remain visible and summaries are text, not color-only. Empty logs render an explicit empty state.
 
 ## 6. Motion & Interaction
 
