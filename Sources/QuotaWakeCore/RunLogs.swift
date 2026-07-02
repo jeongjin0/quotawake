@@ -84,41 +84,17 @@ public struct RunLogEntry: Codable, Equatable, Sendable {
 
 public enum RunLogSanitizer {
     public static let summaryLimit = 4_096
-    private static let sensitiveKeys = [
-        "api_key",
-        "apikey",
-        "token",
-        "authorization",
-        "bearer",
-        "password",
-        "secret"
-    ]
-    private static let sensitivePatterns = [
-        (pattern: #"sk-ant-[A-Za-z0-9._-]+"#, replacement: "[REDACTED]"),
-        (pattern: #"\bsk-[A-Za-z0-9._-]{12,}\b"#, replacement: "[REDACTED]"),
-        (
-            pattern: #"(?i)\b(session[_ ]?id|sessionid)(\s*[:=]?\s*)([A-Za-z0-9][A-Za-z0-9._:-]*)"#,
-            replacement: "$1$2[REDACTED]"
-        )
-    ]
+    private static let token = "[REDACTED]"
 
     public static func sanitize(_ text: String) -> String {
-        let redacted = text
+        let redacted = SecretRedaction.stripANSI(text)
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { line -> String in
-                var sanitizedLine = String(line)
-                for pattern in sensitivePatterns {
-                    sanitizedLine = sanitizedLine.replacingOccurrences(
-                        of: pattern.pattern,
-                        with: pattern.replacement,
-                        options: .regularExpression
-                    )
-                }
-
+                let sanitizedLine = SecretRedaction.applyPatterns(String(line), token: token)
                 let lowered = sanitizedLine.lowercased()
-                if !sanitizedLine.contains("[REDACTED]"),
-                   sensitiveKeys.contains(where: { lowered.contains($0) }) {
-                    return "[REDACTED]"
+                if !sanitizedLine.contains(token),
+                   SecretRedaction.sensitiveLineKeywords.contains(where: { lowered.contains($0) }) {
+                    return token
                 }
                 return sanitizedLine
             }
