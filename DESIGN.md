@@ -86,7 +86,7 @@ All spacing derives from a 4pt base.
 
 ### Layout
 
-- Popover: fixed 360x580pt so status changes never cause resize jitter.
+- Popover: fixed 306x580pt so status changes never cause resize jitter.
 - Settings window: 980x680pt default, 720x520pt minimum. The first-run setup window uses 720x520pt minimum.
 - Use a native sidebar-list structure for Settings, not a rounded sidebar island, nested cards, or tab-like marketing panels.
 - Rows use stable min heights so status changes do not shift the whole view.

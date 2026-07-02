@@ -68,7 +68,7 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate, NSPop
         popover.behavior = .transient
         popover.animates = false
         popover.delegate = self
-        popover.contentSize = NSSize(width: 360, height: 580)
+        popover.contentSize = NSSize(width: 306, height: 580)
         popover.contentViewController = NSHostingController(
             rootView: QuotaWakePopoverView(
                 model: model,
@@ -287,8 +287,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate, NSPop
             case "missing-cli":
                 try UIQARenderer.render(
                     QuotaWakePopoverView(model: model, presentation: PopoverPresentationState(), openSettings: {}, quit: {})
-                        .frame(width: 360, height: 580),
-                    size: NSSize(width: 360, height: 580),
+                        .frame(width: 306, height: 580),
+                    size: NSSize(width: 306, height: 580),
                     to: config.evidenceDirectory.appendingPathComponent("missing-cli.png")
                 )
             case "broken-codex":
@@ -307,8 +307,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate, NSPop
                 )
                 try UIQARenderer.render(
                     QuotaWakePopoverView(model: brokenModel, presentation: PopoverPresentationState(), openSettings: {}, quit: {})
-                        .frame(width: 360, height: 580),
-                    size: NSSize(width: 360, height: 580),
+                        .frame(width: 306, height: 580),
+                    size: NSSize(width: 306, height: 580),
                     to: config.evidenceDirectory.appendingPathComponent("broken-codex.png")
                 )
                 brokenModel.selectedPane = .tools
@@ -386,8 +386,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate, NSPop
                 )
                 try UIQARenderer.render(
                     QuotaWakePopoverView(model: runModel, presentation: PopoverPresentationState(), openSettings: {}, quit: {})
-                        .frame(width: 360, height: 580),
-                    size: NSSize(width: 360, height: 580),
+                        .frame(width: 306, height: 580),
+                    size: NSSize(width: 306, height: 580),
                     to: config.evidenceDirectory.appendingPathComponent("run-now.png")
                 )
             case "live-run-now":
@@ -407,8 +407,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate, NSPop
                 )
                 try UIQARenderer.render(
                     QuotaWakePopoverView(model: runModel, presentation: PopoverPresentationState(), openSettings: {}, quit: {})
-                        .frame(width: 360, height: 580),
-                    size: NSSize(width: 360, height: 580),
+                        .frame(width: 306, height: 580),
+                    size: NSSize(width: 306, height: 580),
                     to: config.evidenceDirectory.appendingPathComponent("live-run-now.png")
                 )
             case "tool-toggle":
@@ -450,8 +450,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate, NSPop
                 )
                 try UIQARenderer.render(
                     QuotaWakePopoverView(model: readinessModel, presentation: PopoverPresentationState(), openSettings: {}, quit: {})
-                        .frame(width: 360, height: 580),
-                    size: NSSize(width: 360, height: 580),
+                        .frame(width: 306, height: 580),
+                    size: NSSize(width: 306, height: 580),
                     to: config.evidenceDirectory.appendingPathComponent("popover.png")
                 )
                 readinessModel.selectedPane = .readiness
@@ -499,8 +499,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate, NSPop
             case "popover-settings":
                 try UIQARenderer.render(
                     QuotaWakePopoverView(model: model, presentation: PopoverPresentationState(), openSettings: {}, quit: {})
-                        .frame(width: 360, height: 580),
-                    size: NSSize(width: 360, height: 580),
+                        .frame(width: 306, height: 580),
+                    size: NSSize(width: 306, height: 580),
                     to: config.evidenceDirectory.appendingPathComponent("popover.png")
                 )
                 for pane in SettingsPaneID.allCases {
