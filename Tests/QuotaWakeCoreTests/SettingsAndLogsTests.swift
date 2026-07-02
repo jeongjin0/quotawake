@@ -139,6 +139,27 @@ final class SettingsAndLogsTests: XCTestCase {
         XCTAssertTrue(sanitized.contains("normal readiness output stays visible"))
     }
 
+    func testRunLogStoreReadAllSkipsCorruptedLinesAndKeepsDecodableEntries() throws {
+        let paths = try makePaths()
+        let store = RunLogStore(paths: paths, calendar: Self.utcCalendar)
+
+        try store.append(makeEntry(id: "before-corruption"), pruneReferenceDate: Self.referenceDate)
+
+        let fileURL = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(at: paths.logsDirectory, includingPropertiesForKeys: nil)
+                .first { $0.pathExtension == "jsonl" }
+        )
+        let handle = try FileHandle(forWritingTo: fileURL)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("{\"eventId\":\"torn-app".utf8))
+        try handle.close()
+
+        try store.append(makeEntry(id: "after-corruption"), pruneReferenceDate: Self.referenceDate)
+
+        let entries = try store.readAll()
+        XCTAssertEqual(entries.map(\.eventId), ["before-corruption", "after-corruption"])
+    }
+
     func testRunLogStorePrunesOnlyLastThirtyLocalLogDays() throws {
         let paths = try makePaths()
         let store = RunLogStore(paths: paths, calendar: Self.utcCalendar)
