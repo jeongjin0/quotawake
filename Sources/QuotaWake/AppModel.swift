@@ -25,6 +25,14 @@ struct RecordingUpdateURLOpener: UpdateURLOpening {
     }
 }
 
+// Poller/CLI work blocks on semaphores for up to the 120s execution timeout.
+// It runs on this dedicated queue instead of inside Task.detached, which would
+// pin one of the cooperative pool's per-core threads for the whole wait.
+private let quotaWakeBlockingWorkQueue = DispatchQueue(
+    label: "com.jeongjin.quotawake.blocking-work",
+    qos: .utility
+)
+
 @MainActor
 final class QuotaWakeAppModel: ObservableObject {
     @Published var settings: AppSettings { didSet { invalidateUIStates() } }
@@ -180,6 +188,15 @@ final class QuotaWakeAppModel: ObservableObject {
         }
     }
 
+    nonisolated private static func runBlocking(_ work: @escaping () -> Void) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            quotaWakeBlockingWorkQueue.async {
+                work()
+                continuation.resume()
+            }
+        }
+    }
+
     func runNow() {
         guard !isRunning else {
             return
@@ -189,14 +206,13 @@ final class QuotaWakeAppModel: ObservableObject {
         statusMessage = "Sending readiness now; this may use the current provider window."
         let poller = self.poller
 
-        Task.detached {
-            try? poller.sendNow()
-
-            await MainActor.run {
-                self.isRunning = false
-                self.statusMessage = "Readiness send finished."
-                self.refresh()
+        Task {
+            await Self.runBlocking {
+                try? poller.sendNow()
             }
+            self.isRunning = false
+            self.statusMessage = "Readiness send finished."
+            self.refresh()
         }
     }
 
@@ -205,10 +221,12 @@ final class QuotaWakeAppModel: ObservableObject {
             return
         }
         let poller = self.poller
-        pollerTask = Task.detached { [weak self] in
+        pollerTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? poller.tick()
-                await self?.refreshAfterPollTick()
+                await Self.runBlocking {
+                    try? poller.tick()
+                }
+                self?.refreshAfterPollTick()
                 let nanoseconds = UInt64(max(1, intervalSeconds) * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: nanoseconds)
             }
@@ -275,20 +293,18 @@ final class QuotaWakeAppModel: ObservableObject {
         statusMessage = "Observing local quota state."
         let poller = self.poller
 
-        Task.detached {
-            let message: String
-            do {
-                try poller.observeNow()
-                message = "Observed local quota state."
-            } catch {
-                message = "Local quota observation failed: \(error.localizedDescription)"
+        Task {
+            var message = "Observed local quota state."
+            await Self.runBlocking {
+                do {
+                    try poller.observeNow()
+                } catch {
+                    message = "Local quota observation failed: \(error.localizedDescription)"
+                }
             }
-
-            await MainActor.run {
-                self.isRunning = false
-                self.statusMessage = message
-                self.refresh()
-            }
+            self.isRunning = false
+            self.statusMessage = message
+            self.refresh()
         }
     }
 
@@ -389,21 +405,20 @@ final class QuotaWakeAppModel: ObservableObject {
         let currentVersion = Self.currentVersion()
         let endpoint = Self.updateEndpoint()
 
-        Task.detached {
-            let state: UpdateCheckState
-            do {
-                state = try Self.makeUpdateCheckState(
-                    currentVersion: currentVersion,
-                    endpoint: endpoint,
-                    fixtureURL: fixtureURL
-                )
-            } catch {
-                state = .failed(error.localizedDescription)
+        Task {
+            var state = UpdateCheckState.checking
+            await Self.runBlocking {
+                do {
+                    state = try Self.makeUpdateCheckState(
+                        currentVersion: currentVersion,
+                        endpoint: endpoint,
+                        fixtureURL: fixtureURL
+                    )
+                } catch {
+                    state = .failed(error.localizedDescription)
+                }
             }
-
-            await MainActor.run {
-                self.updateCheckState = state
-            }
+            self.updateCheckState = state
         }
     }
 
