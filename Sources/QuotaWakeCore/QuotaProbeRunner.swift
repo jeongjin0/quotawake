@@ -82,8 +82,8 @@ public final class QuotaProbeProcessRunner: QuotaProbeRunning {
         process.environment = request.environment
 
         let stdinPipe = Pipe()
-        let stdout = QuotaPipeCollector(limitBytes: outputLimitBytes)
-        let stderr = QuotaPipeCollector(limitBytes: outputLimitBytes)
+        let stdout = BoundedPipeCollector(limitBytes: outputLimitBytes)
+        let stderr = BoundedPipeCollector(limitBytes: outputLimitBytes)
         process.standardInput = stdinPipe
         process.standardOutput = stdout.pipe
         process.standardError = stderr.pipe
@@ -96,7 +96,9 @@ public final class QuotaProbeProcessRunner: QuotaProbeRunning {
         stderr.start()
         try process.run()
         if let input = request.stdin {
-            stdinPipe.fileHandleForWriting.write(Data(input.utf8))
+            // write(contentsOf:) throws on a broken pipe; the legacy write(_:)
+            // raised an uncatchable ObjC exception if the child died first.
+            try? stdinPipe.fileHandleForWriting.write(contentsOf: Data(input.utf8))
         }
         try? stdinPipe.fileHandleForWriting.close()
 
@@ -121,49 +123,5 @@ public final class QuotaProbeProcessRunner: QuotaProbeRunning {
 
     private func terminate(_ process: Process) {
         ProcessTreeTerminator.terminate(process)
-    }
-}
-
-private final class QuotaPipeCollector {
-    let pipe = Pipe()
-    private let limitBytes: Int
-    private let lock = NSLock()
-    private var buffer = Data()
-
-    init(limitBytes: Int) {
-        self.limitBytes = limitBytes
-    }
-
-    func start() {
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else {
-                return
-            }
-            self?.append(data)
-        }
-    }
-
-    func stop() {
-        pipe.fileHandleForReading.readabilityHandler = nil
-        append(pipe.fileHandleForReading.availableData)
-    }
-
-    func string() -> String {
-        lock.lock()
-        defer { lock.unlock() }
-        return String(data: buffer, encoding: .utf8) ?? ""
-    }
-
-    private func append(_ data: Data) {
-        guard !data.isEmpty else {
-            return
-        }
-        lock.lock()
-        defer { lock.unlock() }
-        let remaining = max(0, limitBytes - buffer.count)
-        if remaining > 0 {
-            buffer.append(data.prefix(remaining))
-        }
     }
 }
