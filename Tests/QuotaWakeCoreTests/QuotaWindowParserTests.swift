@@ -21,6 +21,38 @@ final class QuotaWindowParserTests: XCTestCase {
         XCTAssertFalse(state.summary.contains("sk-proj-fake"))
     }
 
+    // Pins the live `claude "/usage"` panel format verified against the real
+    // CLI on 2026-07-02: exits 0 without a TTY, "·" separators, no space
+    // before am/pm, IANA timezone in parentheses, weekly windows per model
+    // family.
+    func testParseClaudeLiveUsagePanelFormat() throws {
+        let observedAt = try XCTUnwrap(Self.iso.date(from: "2026-07-02T04:00:00Z"))
+        let stdout = """
+        You are currently using your subscription to power your Claude Code usage
+
+        Current session: 72% used · resets Jul 2 at 4:10pm (Asia/Seoul)
+        Current week (all models): 18% used · resets Jul 8 at 6:59pm (Asia/Seoul)
+        Current week (Fable): 35% used · resets Jul 8 at 6:59pm (Asia/Seoul)
+
+        What's contributing to your limits usage?
+        """
+        let state = QuotaWindowParser.parse(
+            tool: .claude,
+            source: .claudeUsageProbe,
+            stdout: stdout,
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+            observedAt: observedAt
+        )
+
+        XCTAssertEqual(state.confidence, .observedLocalQuota)
+        XCTAssertEqual(state.usedPercent, 72)
+        XCTAssertEqual(state.resetAt, try XCTUnwrap(Self.iso.date(from: "2026-07-02T07:10:00Z")))
+        XCTAssertEqual(state.weeklyUsedPercent, 18)
+        XCTAssertEqual(state.weeklyResetAt, try XCTUnwrap(Self.iso.date(from: "2026-07-08T09:59:00Z")))
+    }
+
     func testRelativeResetAnchorsToResetPhraseNotFirstDurationInText() throws {
         let state = QuotaWindowParser.parse(
             tool: .claude,
