@@ -2,14 +2,15 @@ import AppKit
 import QuotaWakeCore
 import SwiftUI
 
-final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
+final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
-    private var popover: NSPopover?
+    private var popoverWindow: NSPanel?
     private var settingsWindow: NSWindow?
     private var setupWindow: NSWindow?
     private var model: QuotaWakeAppModel?
     private let popoverPresentation = PopoverPresentationState()
-    private var shouldClosePopoverImmediately = false
+    private var localPopoverEventMonitor: Any?
+    private var globalPopoverEventMonitor: Any?
     #if DEBUG
     private let qaConfig = UIQAConfig.parse(arguments: CommandLine.arguments)
     #endif
@@ -64,12 +65,20 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate, NSPop
         statusItem.isVisible = true
         self.statusItem = statusItem
 
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.animates = false
-        popover.delegate = self
-        popover.contentSize = NSSize(width: 306, height: 580)
-        popover.contentViewController = NSHostingController(
+        let popoverWindow = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 306, height: 580),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        popoverWindow.isFloatingPanel = true
+        popoverWindow.level = .popUpMenu
+        popoverWindow.backgroundColor = .clear
+        popoverWindow.isOpaque = false
+        popoverWindow.hasShadow = true
+        popoverWindow.hidesOnDeactivate = false
+        popoverWindow.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        popoverWindow.contentViewController = NSHostingController(
             rootView: QuotaWakePopoverView(
                 model: model,
                 presentation: popoverPresentation,
@@ -83,7 +92,7 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate, NSPop
                 quit: { NSApp.terminate(nil) }
             )
         )
-        self.popover = popover
+        self.popoverWindow = popoverWindow
 
         if !model.settings.firstRunCompleted {
             showFirstRunSetup()
@@ -106,57 +115,115 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate, NSPop
     }
 
     @MainActor
+    func applicationDidResignActive(_ notification: Notification) {
+        closePopoverImmediately()
+    }
+
+    @MainActor
     @objc private func togglePopover(_ sender: Any?) {
-        guard let button = statusItem?.button, let popover else {
+        guard let button = statusItem?.button, let popoverWindow else {
             return
         }
 
-        if popover.isShown {
+        if popoverWindow.isVisible {
             closePopoverWithExitFade()
             return
         }
 
-        shouldClosePopoverImmediately = false
         popoverPresentation.reset()
         model?.refresh()
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        positionPopoverWindow(popoverWindow, below: button)
+        popoverWindow.orderFrontRegardless()
+        installPopoverEventMonitors()
         NSApp.activate(ignoringOtherApps: true)
     }
 
     @MainActor
-    func popoverShouldClose(_ popover: NSPopover) -> Bool {
-        guard !shouldClosePopoverImmediately else {
-            return true
-        }
-        closePopoverWithExitFade()
-        return false
-    }
-
-    @MainActor
-    func popoverDidClose(_ notification: Notification) {
-        shouldClosePopoverImmediately = false
-        popoverPresentation.reset()
-    }
-
-    @MainActor
     private func closePopoverWithExitFade() {
-        guard let popover, popover.isShown, !popoverPresentation.isClosing else {
+        guard let popoverWindow, popoverWindow.isVisible, !popoverPresentation.isClosing else {
             return
         }
 
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            shouldClosePopoverImmediately = true
-            popover.performClose(nil)
+            closePopoverImmediately()
             return
         }
 
         popoverPresentation.startClosing()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
-            guard let self, let popover = self.popover, popover.isShown else {
+            guard let self, self.popoverWindow?.isVisible == true else {
                 return
             }
-            self.shouldClosePopoverImmediately = true
-            popover.performClose(nil)
+            self.closePopoverImmediately()
+        }
+    }
+
+    @MainActor
+    private func closePopoverImmediately() {
+        popoverWindow?.orderOut(nil)
+        removePopoverEventMonitors()
+        popoverPresentation.reset()
+    }
+
+    @MainActor
+    private func positionPopoverWindow(_ window: NSWindow, below button: NSStatusBarButton) {
+        let size = NSSize(width: 306, height: 580)
+        window.setContentSize(size)
+
+        guard let buttonWindow = button.window, let screen = buttonWindow.screen ?? NSScreen.main else {
+            window.center()
+            return
+        }
+
+        let buttonRectInWindow = button.convert(button.bounds, to: nil)
+        let buttonRectOnScreen = buttonWindow.convertToScreen(buttonRectInWindow)
+        let visibleFrame = screen.visibleFrame
+        let margin: CGFloat = 8
+        let gap: CGFloat = 6
+        var origin = NSPoint(
+            x: buttonRectOnScreen.midX - (size.width / 2),
+            y: buttonRectOnScreen.minY - size.height - gap
+        )
+
+        origin.x = min(max(origin.x, visibleFrame.minX + margin), visibleFrame.maxX - size.width - margin)
+        origin.y = max(origin.y, visibleFrame.minY + margin)
+        window.setFrame(NSRect(origin: origin, size: size), display: true)
+    }
+
+    @MainActor
+    private func installPopoverEventMonitors() {
+        removePopoverEventMonitors()
+        localPopoverEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
+            guard let self else {
+                return event
+            }
+            if event.type == .keyDown, event.keyCode == 53 {
+                self.closePopoverWithExitFade()
+                return nil
+            }
+            if let popoverWindow = self.popoverWindow, event.window === popoverWindow {
+                return event
+            }
+            if let statusWindow = self.statusItem?.button?.window, event.window === statusWindow {
+                return event
+            }
+            self.closePopoverWithExitFade()
+            return event
+        }
+        globalPopoverEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            self?.closePopoverWithExitFade()
+        }
+    }
+
+    @MainActor
+    private func removePopoverEventMonitors() {
+        if let localPopoverEventMonitor {
+            NSEvent.removeMonitor(localPopoverEventMonitor)
+            self.localPopoverEventMonitor = nil
+        }
+        if let globalPopoverEventMonitor {
+            NSEvent.removeMonitor(globalPopoverEventMonitor)
+            self.globalPopoverEventMonitor = nil
         }
     }
 
@@ -248,8 +315,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate, NSPop
                     statusItemImageSize: statusImage?.size ?? .zero,
                     statusItemImageName: statusImage?.name() ?? "",
                     statusItemImage: statusImage,
-                    popoverShown: self.popover?.isShown ?? false,
-                    popoverSize: self.popover?.contentSize ?? .zero,
+                    popoverShown: self.popoverWindow?.isVisible ?? false,
+                    popoverSize: self.popoverWindow?.contentView?.bounds.size ?? .zero,
                     settingsWindowShown: self.settingsWindow?.isVisible ?? false,
                     settingsWindowTitle: self.settingsWindow?.title ?? "",
                     logs: model.logs
