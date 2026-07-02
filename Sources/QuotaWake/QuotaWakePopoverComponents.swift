@@ -47,7 +47,7 @@ struct ProviderQuotaCard: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(QWTheme.cardFill.opacity(0.42))
+                .fill(QWTheme.cardFill.opacity(0.28))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10)

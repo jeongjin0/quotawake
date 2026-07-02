@@ -6,11 +6,11 @@ enum QWTheme {
     static let windowBackground = Color(nsColor: .windowBackgroundColor)
     static let sidebarBackground = Color(nsColor: .underPageBackgroundColor)
     static let surface = Color(nsColor: .controlBackgroundColor)
-    static let glassSurface = Color(nsColor: .windowBackgroundColor).opacity(0.62)
+    static let glassSurface = Color(nsColor: .windowBackgroundColor).opacity(0.34)
     static let glassPressed = Color(nsColor: .controlAccentColor).opacity(0.10)
     static let surfaceSubtle = Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
     static let border = Color(nsColor: .separatorColor)
-    static let glassBorder = Color(nsColor: .separatorColor).opacity(0.62)
+    static let glassBorder = Color(nsColor: .separatorColor).opacity(0.42)
     static let primaryText = Color.primary
     static let secondaryText = Color.secondary
     static let accent = Color.accentColor
@@ -34,11 +34,20 @@ enum QWTheme {
 
     // Neutral translucent card surface used by provider cards in the popover.
     static let cardFill = Color.white
-    static let cardStroke = Color.black.opacity(0.10)
+    static let cardStroke = Color.black.opacity(0.075)
     static let popoverInk = Color.black.opacity(0.86)
     static let popoverInkSecondary = Color.black.opacity(0.5)
     static let popoverInkTertiary = Color.black.opacity(0.4)
     static let popoverHairline = Color.black.opacity(0.08)
+    static let popoverExitGradient = LinearGradient(
+        colors: [
+            Color.white.opacity(0.46),
+            Color.white.opacity(0.20),
+            Color.white.opacity(0.04)
+        ],
+        startPoint: .top,
+        endPoint: .bottom
+    )
 }
 
 enum QWSettingsTheme {
