@@ -132,6 +132,11 @@ public enum RunLogSanitizer {
 }
 
 public final class RunLogStore {
+    // Serializes appends across the poller and tool-runner paths; a torn
+    // concurrent append would corrupt the shared JSONL files.
+    private static let ioLock = NSLock()
+    private var lastPrunedDay: String?
+
     private let paths: QuotaWakePaths
     private let fileManager: FileManager
     private let calendar: Calendar
@@ -157,6 +162,9 @@ public final class RunLogStore {
     }
 
     public func append(_ entry: RunLogEntry, pruneReferenceDate: Date? = nil) throws {
+        Self.ioLock.lock()
+        defer { Self.ioLock.unlock() }
+
         try paths.createDirectories(fileManager: fileManager)
 
         let sanitizedEntry = entry.sanitized()
@@ -168,18 +176,35 @@ public final class RunLogStore {
         data.append(0x0A)
 
         if fileManager.fileExists(atPath: fileURL.path) {
-            let handle = try FileHandle(forWritingTo: fileURL)
+            let handle = try FileHandle(forUpdating: fileURL)
             defer { try? handle.close() }
-            try handle.seekToEnd()
-            handle.write(data)
+            // If the previous append was torn (crash/power loss mid-write),
+            // start on a fresh line so only the torn line is lost, not this one.
+            let end = try handle.seekToEnd()
+            if end > 0 {
+                try handle.seek(toOffset: end - 1)
+                if try handle.read(upToCount: 1)?.first != 0x0A {
+                    data.insert(0x0A, at: 0)
+                }
+                try handle.seekToEnd()
+            }
+            try handle.write(contentsOf: data)
         } else {
             try data.write(to: fileURL, options: [.atomic])
         }
 
-        try prune(now: pruneReferenceDate ?? entry.startedAt)
+        let pruneDate = pruneReferenceDate ?? entry.startedAt
+        let pruneDay = Self.fileDateString(for: pruneDate, calendar: calendar)
+        if pruneDay != lastPrunedDay {
+            try pruneLocked(now: pruneDate)
+            lastPrunedDay = pruneDay
+        }
     }
 
     public func readAll() throws -> [RunLogEntry] {
+        Self.ioLock.lock()
+        defer { Self.ioLock.unlock() }
+
         guard fileManager.fileExists(atPath: paths.logsDirectory.path) else {
             return []
         }
@@ -191,17 +216,28 @@ public final class RunLogStore {
         .filter { $0.pathExtension == "jsonl" }
         .sorted { $0.lastPathComponent < $1.lastPathComponent }
 
-        return try files.flatMap { fileURL in
-            let contents = try String(contentsOf: fileURL, encoding: .utf8)
-            return try contents
+        // A single torn or corrupted line (crash mid-append, disk hiccup) must
+        // not take down every readAll-dependent path for the whole retention
+        // window, so undecodable lines are skipped instead of thrown.
+        return files.flatMap { fileURL -> [RunLogEntry] in
+            guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else {
+                return []
+            }
+            return contents
                 .split(separator: "\n")
-                .map { line in
-                    try decoder.decode(RunLogEntry.self, from: Data(line.utf8))
+                .compactMap { line in
+                    try? decoder.decode(RunLogEntry.self, from: Data(line.utf8))
                 }
         }
     }
 
     public func prune(now: Date) throws {
+        Self.ioLock.lock()
+        defer { Self.ioLock.unlock() }
+        try pruneLocked(now: now)
+    }
+
+    private func pruneLocked(now: Date) throws {
         guard fileManager.fileExists(atPath: paths.logsDirectory.path) else {
             return
         }

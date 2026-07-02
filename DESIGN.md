@@ -24,18 +24,25 @@ QuotaWake feels like a quiet Mac utility: compact, trustworthy, and easy to scan
 | Status/warning | `statusWarning` | system orange | system orange | Skipped/missing setup |
 | Status/error | `statusError` | system red | system red | Failed/error state |
 | Status/info | `statusInfo` | system blue | system blue | Checking/update info |
-| Provider/Claude accent | `providerClaudeAccent` | dynamic warm system accent | dynamic warm system accent | Claude identity mark, non-status emphasis |
-| Provider/Claude wash | `providerClaudeWash` | low-opacity warm material tint | low-opacity warm material tint | Claude card accent rail or identity fill |
-| Provider/Codex accent | `providerCodexAccent` | dynamic cool system accent | dynamic cool system accent | Codex identity mark, non-status emphasis |
-| Provider/Codex wash | `providerCodexWash` | low-opacity cool material tint | low-opacity cool material tint | Codex card accent rail or identity fill |
+| Provider/Claude accent | `providerClaudeAccent` | `#D97757` | `#D97757` | Claude identity mark, non-status emphasis |
+| Provider/Claude wash | `providerClaudeWash` | low-opacity `#D97757` tint | low-opacity `#D97757` tint | Claude card accent rail or identity fill |
+| Provider/Codex accent | `providerCodexAccent` | `#0D0D0D` | `#0D0D0D` | Codex identity mark, non-status emphasis |
+| Provider/Codex wash | `providerCodexWash` | low-opacity `#0D0D0D` tint | low-opacity `#0D0D0D` tint | Codex card accent rail or identity fill |
 
 ### Rules
 
-- Use native dynamic system colors through SwiftUI/AppKit so light, dark, vibrancy, and accessibility contrast follow macOS.
-- Accent color is reserved for focus, selected state, links, and the strongest action in a view.
-- Provider identity accents are semantic identity tokens, not status tokens: Claude uses the warm accent family and Codex uses the cool accent family.
+- The shipped app uses fixed appearances by surface: the menu bar popover is
+  rendered in a fixed light glass theme (`QWTheme`) and the Settings/first-run
+  windows in a fixed dark theme (`QWSettingsTheme`). Color values for these
+  themes are defined once as named constants in the theme types, not scattered
+  per-view.
+- Provider identity accents are fixed brand values: Claude `#D97757` (warm
+  coral), Codex `#0D0D0D` (near-black). They are identity tokens, not status
+  tokens.
+- Accent color is reserved for focus, selected state, links, and the strongest
+  action in a view.
 - Status must pair color with visible text or a status glyph; never depend on color alone or color only status.
-- Do not introduce decorative gradients, orbs, one-off bright palettes, marketing color blocks, or arbitrary raw hex values in SwiftUI/product code.
+- Do not introduce decorative gradients, orbs, one-off bright palettes, marketing color blocks, or ad-hoc per-view hex values outside the named theme constants.
 
 ## 3. Typography
 
@@ -59,7 +66,7 @@ QuotaWake feels like a quiet Mac utility: compact, trustworthy, and easy to scan
 
 - Use dynamic type-compatible SwiftUI fonts where possible.
 - Do not scale type with window or viewport width.
-- Keep text compact but never below 11pt in app UI.
+- Keep text compact and no smaller than 11pt in app UI, with one allowed exception: compact inline chips (e.g. the Observe chip) may use 10.5pt.
 
 ## 4. Spacing & Layout
 
@@ -78,12 +85,12 @@ All spacing derives from a 4pt base.
 
 ### Layout
 
-- Popover width: 320-360pt, fixed enough to avoid resize jitter; height may expand to about 580pt when quota progress bars and diagnostics are visible.
-- Settings window minimum: 720x520pt.
+- Popover: fixed 360x580pt so status changes never cause resize jitter.
+- Settings window: 980x680pt default, 900x620pt minimum. The first-run setup window uses 720x520pt minimum.
 - Use native sidebar or tab-like section navigation for Settings, not nested cards.
 - Rows use stable min heights so status changes do not shift the whole view.
 - Provider quota cards use a stable compact footprint: provider header, quota progress bar, reset countdown line, and only conditional diagnostic detail.
-- The bottom menu footer is separated from provider content by a native divider and uses full-width text rows for Settings, About QuotaWake, and Quit.
+- The bottom menu footer is separated from provider content by a hairline divider and uses compact icon+text chips: Reload, Pause/Resume, and Settings grouped at the leading edge, Quit at the trailing edge (see Popover Menu Footer below).
 
 ### Rules
 
@@ -135,9 +142,9 @@ All spacing derives from a 4pt base.
 
 ### Popover Menu Footer
 
-- **Structure**: a horizontal footer below a hairline divider. Reload and Settings are grouped at the leading edge; Quit sits at the trailing edge as a destructive (error-tinted) chip. Each item is icon + text (`↻ Reload`, `⚙ Settings`, `⏻ Quit`).
-- **Actions**: Reload refreshes the observed quota; Settings opens the settings window; Quit terminates the app.
-- **Variants**: normal chip, destructive Quit chip.
+- **Structure**: a horizontal footer below a hairline divider. Reload, Pause/Resume, and Settings are grouped at the leading edge; Quit sits at the trailing edge as a destructive (error-tinted) chip. Each item is icon + text (`↻ Reload`, `⏸ Pause`/`▶ Resume`, `⚙ Settings`, `⏻ Quit`).
+- **Actions**: Reload refreshes the observed quota; Pause/Resume toggles background readiness; Settings opens the settings window; Quit terminates the app.
+- **Variants**: normal chip, destructive Quit chip; the Pause chip swaps its label and icon with the paused state.
 - **Spacing**: compact chip padding, `space2` grouping, divider above footer.
 - **States**: normal, pressed, disabled only when an action is temporarily unavailable.
 - **Accessibility**: footer actions must show visible text; do not hide Reload, Settings, or Quit behind icon-only controls.

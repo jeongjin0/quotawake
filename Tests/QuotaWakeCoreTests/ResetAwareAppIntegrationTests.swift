@@ -421,6 +421,90 @@ final class ResetAwareAppIntegrationTests: XCTestCase {
         XCTAssertEqual(try fixture.logStore.readAll().last?.status, .sent)
     }
 
+    func testRepeatedGatedTicksLogOneSkipEntryPerCandidateAndReason() throws {
+        let fixture = try makeFixture()
+        var settings = AppSettings.default
+        settings.firstRunCompleted = true
+        settings.tools.claude.enabled = false
+        settings.tools.codex.enabled = true
+        settings.background.launchAtLoginEnabled = true
+        settings.readiness.activeOnly = true
+        try fixture.settingsStore.save(settings)
+        try fixture.quotaStateStore.save(QuotaWindowState(
+            tool: .codex,
+            source: .cliMessageParser,
+            confidence: .exactReset,
+            classification: .limitReached(resetAt: Self.now),
+            observedAt: Self.now.addingTimeInterval(-60),
+            resetAt: Self.now,
+            summary: "limit reset due"
+        ))
+
+        let runner = RecordingToolRunner(results: [:])
+        var currentNow = Self.now
+        let poller = QuotaReadinessPoller(
+            paths: fixture.paths,
+            settingsStore: fixture.settingsStore,
+            logStore: fixture.logStore,
+            quotaStateStore: fixture.quotaStateStore,
+            commandsProvider: { [fixture.command] },
+            runner: runner,
+            activityEvaluator: SequenceActivityEvaluator([
+                .idle(seconds: 600), .idle(seconds: 660), .idle(seconds: 720)
+            ]),
+            now: { currentNow }
+        )
+
+        for _ in 0..<3 {
+            try poller.tick()
+            currentNow = currentNow.addingTimeInterval(60)
+        }
+
+        XCTAssertTrue(runner.requests.isEmpty)
+        let logs = try fixture.logStore.readAll()
+        XCTAssertEqual(logs.filter { $0.skipReason == "idle" }.count, 1, "Same gated candidate must not log a skip entry per tick")
+    }
+
+    func testObserveNeededTicksThrottleRepeatedProbesUntilIntervalElapses() throws {
+        let fixture = try makeFixture()
+        var settings = AppSettings.default
+        settings.firstRunCompleted = true
+        settings.tools.claude.enabled = false
+        settings.tools.codex.enabled = true
+        settings.background.launchAtLoginEnabled = true
+        settings.readiness.resetEstimationMode = .localSignalsOnly
+        try fixture.settingsStore.save(settings)
+
+        let runner = RecordingToolRunner(results: [:])
+        let observer = CountingQuotaObserver()
+        var currentNow = Self.now
+        let poller = QuotaReadinessPoller(
+            paths: fixture.paths,
+            settingsStore: fixture.settingsStore,
+            logStore: fixture.logStore,
+            quotaStateStore: fixture.quotaStateStore,
+            commandsProvider: { [fixture.command] },
+            runner: runner,
+            activityEvaluator: SequenceActivityEvaluator([.active, .active, .active]),
+            quotaObserverProvider: { _, _ in observer },
+            now: { currentNow },
+            minimumObserveIntervalSeconds: 600
+        )
+
+        try poller.tick()
+        currentNow = currentNow.addingTimeInterval(60)
+        try poller.tick()
+        XCTAssertEqual(observer.observeCount, 1, "A failed observation must not re-probe on the next tick")
+
+        currentNow = currentNow.addingTimeInterval(600)
+        try poller.tick()
+        XCTAssertEqual(observer.observeCount, 2, "Observation resumes once the interval has elapsed")
+        XCTAssertTrue(runner.requests.isEmpty)
+
+        let observeLogs = try fixture.logStore.readAll().filter { $0.eventId.hasPrefix("quota-observe-") }
+        XCTAssertEqual(observeLogs.count, 1, "Identical observation outcomes must not append duplicate log entries")
+    }
+
     private func makeFixture(tools: [ToolKind] = [.codex]) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("QuotaWakeResetAwareAppIntegrationTests-\(UUID().uuidString)", isDirectory: true)
         let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
@@ -577,6 +661,23 @@ private final class RecordingToolRunner: ToolRunning {
         entry.decisionSource = request.decisionSource
         entry.quotaConfidence = request.quotaConfidence
         return entry
+    }
+}
+
+private final class CountingQuotaObserver: QuotaWindowObserving {
+    private(set) var observeCount = 0
+
+    func observe(observedAt: Date) -> QuotaWindowState {
+        observeCount += 1
+        return QuotaWindowState(
+            tool: .codex,
+            source: .cliMessageParser,
+            confidence: .unknown,
+            classification: .unknownFailure,
+            observedAt: observedAt,
+            resetAt: nil,
+            summary: "probe failed"
+        )
     }
 }
 

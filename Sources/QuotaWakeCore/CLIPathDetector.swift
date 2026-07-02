@@ -35,6 +35,37 @@ public struct ResolvedToolCommand: Equatable, Sendable {
     }
 }
 
+// Caches codex --version health-probe outcomes so resolve() does not spawn a
+// subprocess (worst case blocking for the probe timeout) on every call; the
+// app resolves on every settings save and popover refresh.
+private final class CodexProbeCache {
+    private struct Entry {
+        let modificationDate: Date?
+        let succeeded: Bool
+        let probedAt: Date
+    }
+
+    private let lock = NSLock()
+    private var entries: [String: Entry] = [:]
+
+    func result(for path: String, modificationDate: Date?, ttl: TimeInterval, now: Date) -> Bool? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let entry = entries[path],
+              entry.modificationDate == modificationDate,
+              now.timeIntervalSince(entry.probedAt) < ttl else {
+            return nil
+        }
+        return entry.succeeded
+    }
+
+    func store(path: String, modificationDate: Date?, succeeded: Bool, now: Date) {
+        lock.lock()
+        defer { lock.unlock() }
+        entries[path] = Entry(modificationDate: modificationDate, succeeded: succeeded, probedAt: now)
+    }
+}
+
 public struct CLIPathDetector {
     public static let defaultSystemBinDirectories = [
         "/opt/homebrew/bin",
@@ -49,17 +80,21 @@ public struct CLIPathDetector {
     private let homeDirectory: URL
     private let commonBinDirectories: [URL]
     private let codexHealthProbeTimeoutSeconds: TimeInterval
+    private let codexHealthProbeCacheTTLSeconds: TimeInterval
+    private let probeCache = CodexProbeCache()
 
     public init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         commonBinDirectories: [URL] = Self.defaultSystemBinDirectories.map { URL(fileURLWithPath: $0, isDirectory: true) },
         fileManager: FileManager = .default,
-        codexHealthProbeTimeoutSeconds: TimeInterval = 2
+        codexHealthProbeTimeoutSeconds: TimeInterval = 2,
+        codexHealthProbeCacheTTLSeconds: TimeInterval = 300
     ) {
         self.homeDirectory = homeDirectory
         self.commonBinDirectories = commonBinDirectories
         self.fileManager = fileManager
         self.codexHealthProbeTimeoutSeconds = codexHealthProbeTimeoutSeconds
+        self.codexHealthProbeCacheTTLSeconds = codexHealthProbeCacheTTLSeconds
     }
 
     public func resolve(tool: ToolKind, manualPath: String? = nil) -> ResolvedToolCommand {
@@ -131,6 +166,23 @@ public struct CLIPathDetector {
     }
 
     private func codexVersionProbeSucceeds(_ executableURL: URL) -> Bool {
+        let path = executableURL.path
+        let modificationDate = (try? fileManager.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+        let probeTime = Date()
+        if let cached = probeCache.result(
+            for: path,
+            modificationDate: modificationDate,
+            ttl: codexHealthProbeCacheTTLSeconds,
+            now: probeTime
+        ) {
+            return cached
+        }
+        let succeeded = runCodexVersionProbe(executableURL)
+        probeCache.store(path: path, modificationDate: modificationDate, succeeded: succeeded, now: probeTime)
+        return succeeded
+    }
+
+    private func runCodexVersionProbe(_ executableURL: URL) -> Bool {
         let process = Process()
         process.executableURL = executableURL
         process.arguments = ["--version"]

@@ -87,7 +87,7 @@ local confidence state are already logged.
         │ reset-aware readiness  │  due candidate + active Mac + cooldown/idempotency
         └───────────┬────────────┘
                     ▼
-           claude -p "hi" / codex "hi"  ◀── runs as you, not root
+      claude --print "hi" / codex exec "hi"  ◀── runs as you, not root
                     │
                     ▼
        readiness attempt + confidence state logged locally
@@ -104,8 +104,9 @@ QuotaWake first looks for local quota-window signals. The source hierarchy is:
 4. **Unknown quota state**, which does not trigger automatic readiness sends in strict mode.
 
 When a reset candidate is due and the active-only gate passes, QuotaWake invokes the
-**official CLI you already have installed** (`claude`, `codex`) in a sandboxed working
-directory, with a bounded timeout and an overlap guard so a hung run can't block the next
+**official CLI you already have installed** (`claude`, `codex`) in a QuotaWake-owned
+working directory (Codex additionally runs in its read-only sandbox mode), with a bounded
+timeout and an overlap guard so a hung run can't block the next
 one. It records the actual time, tool, command path, exit code, duration, decision source,
 confidence, and a short sanitized status in the menu bar popover and logs.
 
@@ -140,6 +141,7 @@ swift test
 
 | Doc | Purpose |
 |---|---|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Code structure, runtime flow, module map |
 | [`DESIGN.md`](DESIGN.md) | App shape, menu bar / Settings UX, first-run flow |
 | [`DEVELOPMENT.md`](DEVELOPMENT.md) | Build, QA, troubleshooting, version-bump commands |
 | [`RELEASE.md`](RELEASE.md) | Signing, notarization, and release execution |
@@ -154,7 +156,7 @@ Everything lives in the **Settings** window (menu bar → *Settings…*):
 
 | Section | What you control |
 |---|---|
-| **General** | Version · Launch at Login · Background readiness · Pause · Check for Updates |
+| **General** | Version · Launch at Login · Background readiness (pause/resume) · Send readiness now · Check for Updates |
 | **Tools** | Claude / Codex toggles · CLI path detection · manual path override · test |
 | **Window Readiness** | Active-only gate · idle threshold · reset estimation · cooldown · observe/send controls |
 | **Prompt** | The readiness prompt (default `hi`) |
@@ -181,6 +183,16 @@ QuotaWake is **local-first** by design:
 
 The only network activity is an optional **Check for Updates** that reads public GitHub
 release metadata.
+
+### Data locations & uninstall
+
+All app data lives under `~/Library/Application Support/QuotaWake/`:
+`settings.json`, `Logs/` (daily JSONL run logs), `QuotaWindows/` (observed
+quota state), and `Run/` (the working directory readiness prompts run in).
+
+To uninstall completely: quit QuotaWake, delete `/Applications/QuotaWake.app`,
+delete `~/Library/Application Support/QuotaWake/`, and remove the login item in
+**System Settings → General → Login Items** if it remains listed.
 
 ---
 

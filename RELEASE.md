@@ -24,8 +24,7 @@ excluding Tauri automatic-updater-specific assets and commands.
 ## Assumed Location And Variables
 
 Run commands from `quotawake_mac/` unless a command explicitly says otherwise.
-The implementation scripts are part of the MVP build work; before they exist,
-this document is the contract those scripts must satisfy.
+This document is the contract the release scripts in `Scripts/` must satisfy.
 
 Set release variables once per release:
 
@@ -39,7 +38,7 @@ export DMG_PATH="dist/QuotaWake-${VERSION}.dmg"
 export RELEASES_LATEST_API_URL="https://api.github.com/repos/jeongjin0/quotawake/releases/latest"
 ```
 
-`VERSION` should come from `version.env` once that file exists. It must be
+`VERSION` comes from `version.env`. It must be
 numeric SemVer in `MAJOR.MINOR.PATCH` form, for example `0.0.0`; the release
 tag is `v${VERSION}`. Release notes use `PREVIOUS_TAG` and `CURRENT_TAG`; DMG
 packaging and evidence capture use `VERSION`, `CAPTURE_DIR`, and `DMG_PATH`.
@@ -103,14 +102,13 @@ swift build -c release
 ```
 
 `Scripts/package_app.sh release` should assemble
-`QuotaWake.app`, write and lint `Info.plist`, include resources/helpers, and
+`QuotaWake.app`, write and lint `Info.plist`, include resources, and
 prepare the app bundle for release signing. It should not submit to Apple
-notarization.
+notarization. The app ships no helper binaries (the wake helper was removed
+from the active release path; see Removed Wake Helper below).
 
 `Scripts/sign-and-notarize.sh` owns release signing and final DMG notarization.
-It signs nested helper binaries before signing the app bundle; helper scripts
-should be included as sealed app resources rather than executed from outside the
-signed bundle. App-only mode is sign-only because `notarytool` does not accept a
+App-only mode is sign-only because `notarytool` does not accept a
 raw `.app` bundle.
 
 Release app signing must use hardened runtime:

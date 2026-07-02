@@ -7,10 +7,6 @@ struct QuotaWakePopoverView: View {
     let openSettings: () -> Void
     var toggleReadinessPaused: () -> Void = {}
     let quit: () -> Void
-    var showAbout: () -> Void = {
-        NSApp.orderFrontStandardAboutPanel(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
 
     var body: some View {
         let state = model.popoverState

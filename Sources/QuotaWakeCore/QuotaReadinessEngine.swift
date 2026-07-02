@@ -1,7 +1,14 @@
 import Foundation
 
 public struct QuotaReadinessEngine: Equatable, Sendable {
-    public init() {}
+    // Blocked/unavailable provider states are re-observed after this age so a
+    // one-time condition (logged out once, app-server briefly missing) cannot
+    // wedge the tool until a manual observe.
+    private let staleProviderStateSeconds: TimeInterval
+
+    public init(staleProviderStateSeconds: TimeInterval = 900) {
+        self.staleProviderStateSeconds = staleProviderStateSeconds
+    }
 
     public func evaluate(input: QuotaReadinessInput) -> QuotaReadinessDecision {
         guard input.toolSettings.enabled else {
@@ -59,10 +66,16 @@ public struct QuotaReadinessEngine: Equatable, Sendable {
             return .observeNeeded(QuotaReadinessObservation(tool: input.tool, reason: .invalidQuotaState))
         }
         if isProviderBlocked(quotaWindow) {
+            if isStale(quotaWindow, now: input.now) {
+                return .observeNeeded(QuotaReadinessObservation(tool: input.tool, reason: .staleProviderState))
+            }
             return .blocked
         }
         if quotaWindow.classification == .quotaUnavailable,
            input.readiness.resetEstimationMode != .allowFiveHourEstimate {
+            if isStale(quotaWindow, now: input.now) {
+                return .observeNeeded(QuotaReadinessObservation(tool: input.tool, reason: .staleProviderState))
+            }
             return .unavailable
         }
         guard case let .limitReached(resetAt) = quotaWindow.classification,
@@ -139,6 +152,10 @@ public struct QuotaReadinessEngine: Equatable, Sendable {
                 source: .activityGate
             )
         }
+    }
+
+    private func isStale(_ state: QuotaWindowState, now: Date) -> Bool {
+        now.timeIntervalSince(state.observedAt) >= staleProviderStateSeconds
     }
 
     private func isProviderBlocked(_ state: QuotaWindowState) -> Bool {

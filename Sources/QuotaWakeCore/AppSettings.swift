@@ -47,70 +47,11 @@ public struct ToolSettingsSet: Codable, Equatable, Sendable {
     }
 }
 
-public struct ScheduleTime: Codable, Equatable, Sendable {
-    public var hour: Int
-    public var minute: Int
-
-    public init(hour: Int, minute: Int) throws {
-        guard (0...23).contains(hour) else {
-            throw ValidationError.invalidHour
-        }
-        guard (0...59).contains(minute) else {
-            throw ValidationError.invalidMinute
-        }
-        self.hour = hour
-        self.minute = minute
-    }
-
-    public enum ValidationError: Error, Equatable, Sendable {
-        case invalidHour
-        case invalidMinute
-    }
-}
-
-public struct Schedule: Codable, Equatable, Sendable {
-    public var paused: Bool
-    public var weekdays: [Int]
-    public var times: [ScheduleTime]
-    public var missedRunGraceMinutes: Int
-
-    public init(
-        paused: Bool = true,
-        weekdays: [Int] = [],
-        times: [ScheduleTime] = [],
-        missedRunGraceMinutes: Int = 15
-    ) {
-        self.paused = paused
-        self.weekdays = weekdays
-        self.times = times
-        self.missedRunGraceMinutes = missedRunGraceMinutes
-    }
-}
-
 public struct BackgroundSettings: Codable, Equatable, Sendable {
     public var launchAtLoginEnabled: Bool
 
     public init(launchAtLoginEnabled: Bool = false) {
         self.launchAtLoginEnabled = launchAtLoginEnabled
-    }
-}
-
-public struct WakeSettings: Codable, Equatable, Sendable {
-    public var enabled: Bool
-    public var leadMinutes: Int
-    public var helperInstalled: Bool
-    public var lastRequestedWake: String?
-
-    public init(
-        enabled: Bool = false,
-        leadMinutes: Int = 10,
-        helperInstalled: Bool = false,
-        lastRequestedWake: String? = nil
-    ) {
-        self.enabled = enabled
-        self.leadMinutes = leadMinutes
-        self.helperInstalled = helperInstalled
-        self.lastRequestedWake = lastRequestedWake
     }
 }
 
@@ -175,9 +116,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var prompt: String
     public var tools: ToolSettingsSet
     public var readiness: WindowReadinessSettings
-    public var schedule: Schedule
     public var background: BackgroundSettings
-    public var wake: WakeSettings
 
     public init(
         schemaVersion: Int = 2,
@@ -185,18 +124,14 @@ public struct AppSettings: Codable, Equatable, Sendable {
         prompt: String = "hi",
         tools: ToolSettingsSet = ToolSettingsSet(),
         readiness: WindowReadinessSettings = WindowReadinessSettings(),
-        schedule: Schedule = Schedule(),
-        background: BackgroundSettings = BackgroundSettings(),
-        wake: WakeSettings = WakeSettings()
+        background: BackgroundSettings = BackgroundSettings()
     ) {
         self.schemaVersion = max(2, schemaVersion)
         self.firstRunCompleted = firstRunCompleted
         self.prompt = prompt
         self.tools = tools
         self.readiness = readiness
-        self.schedule = schedule
         self.background = background
-        self.wake = wake
     }
 
     public static let `default` = AppSettings()
@@ -232,8 +167,6 @@ public struct AppSettings: Codable, Equatable, Sendable {
         readiness = decodedReadiness
         background = try container.decodeIfPresent(BackgroundSettings.self, forKey: .background)
             ?? BackgroundSettings()
-        schedule = Schedule()
-        wake = WakeSettings()
     }
 
     public func encode(to encoder: Encoder) throws {

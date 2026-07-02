@@ -22,12 +22,12 @@ final class CLIExecutorTests: XCTestCase {
         let runner = ToolRunner(logStore: fixture.logStore)
         let prompt = "hi"
 
-        let results = runner.runTools([
-            makeRequest(tool: .claude, executableURL: claude, fixture: fixture, prompt: prompt),
-            makeRequest(tool: .codex, executableURL: codex, fixture: fixture, prompt: prompt)
-        ])
+        let results = [
+            try runner.run(makeRequest(tool: .claude, executableURL: claude, fixture: fixture, prompt: prompt)),
+            try runner.run(makeRequest(tool: .codex, executableURL: codex, fixture: fixture, prompt: prompt))
+        ]
 
-        let entries = try results.map { try $0.get() }.sorted { $0.tool.rawValue < $1.tool.rawValue }
+        let entries = results.sorted { $0.tool.rawValue < $1.tool.rawValue }
         XCTAssertEqual(entries.map(\.status), [.sent, .sent])
         XCTAssertEqual(entries.map(\.exitCode), [0, 0])
         XCTAssertEqual(try fixture.logStore.readAll().map(\.status).sorted { $0.rawValue < $1.rawValue }, [.sent, .sent])

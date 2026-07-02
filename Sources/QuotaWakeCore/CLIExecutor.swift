@@ -2,7 +2,7 @@ import Foundation
 
 // SIZE_OK(MVP): CLI execution, overlap guarding, and log entry conversion stay in
 // one file so argv/process invariants are reviewed together. Follow-up split:
-// CLIExecutor.swift, ToolRunner.swift, PowerAssertion.swift, and BoundedPipe.swift.
+// CLIExecutor.swift, ToolRunner.swift, and BoundedPipe.swift.
 
 #if canImport(Darwin)
 import Darwin
@@ -232,17 +232,6 @@ public final class CLIExecutor {
     }
 }
 
-public protocol PowerAssertion {
-    func begin(reason: String) throws
-    func end()
-}
-
-public final class NoopPowerAssertion: PowerAssertion {
-    public init() {}
-    public func begin(reason: String) throws {}
-    public func end() {}
-}
-
 public final class OverlapGuard {
     private let lock = NSLock()
     private var runningTools = Set<ToolKind>()
@@ -302,7 +291,6 @@ public final class ToolRunner {
     private let executor: CLIExecutor
     private let logStore: RunLogStore
     private let overlapGuard: OverlapGuard
-    private let powerAssertion: PowerAssertion
     private let commandTemplate: CLICommandTemplate
     private let logLock = NSLock()
 
@@ -310,13 +298,11 @@ public final class ToolRunner {
         executor: CLIExecutor = CLIExecutor(),
         logStore: RunLogStore = RunLogStore(),
         overlapGuard: OverlapGuard = OverlapGuard(),
-        powerAssertion: PowerAssertion = NoopPowerAssertion(),
         commandTemplate: CLICommandTemplate = CLICommandTemplate()
     ) {
         self.executor = executor
         self.logStore = logStore
         self.overlapGuard = overlapGuard
-        self.powerAssertion = powerAssertion
         self.commandTemplate = commandTemplate
     }
 
@@ -392,9 +378,6 @@ public final class ToolRunner {
         )
 
         do {
-            try powerAssertion.begin(reason: "QuotaWake \(command.tool.rawValue) readiness prompt")
-            defer { powerAssertion.end() }
-
             let result = try executor.run(executionRequest)
             let status = Self.status(for: result)
             let entry = RunLogEntry(
@@ -440,35 +423,6 @@ public final class ToolRunner {
             try appendLog(entry)
             return entry
         }
-    }
-
-    public func runTools(
-        _ requests: [ToolRunRequest],
-        queue: DispatchQueue = .global(qos: .utility)
-    ) -> [Result<RunLogEntry, Error>] {
-        let group = DispatchGroup()
-        let resultLock = NSLock()
-        var results = Array<Result<RunLogEntry, Error>?>(repeating: nil, count: requests.count)
-
-        for (index, request) in requests.enumerated() {
-            group.enter()
-            queue.async {
-                defer { group.leave() }
-                do {
-                    let entry = try self.run(request)
-                    resultLock.lock()
-                    results[index] = .success(entry)
-                    resultLock.unlock()
-                } catch {
-                    resultLock.lock()
-                    results[index] = .failure(error)
-                    resultLock.unlock()
-                }
-            }
-        }
-
-        group.wait()
-        return results.compactMap { $0 }
     }
 
     private func appendLog(_ entry: RunLogEntry) throws {

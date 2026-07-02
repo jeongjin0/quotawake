@@ -38,18 +38,24 @@ osascript -e 'tell application "QuotaWake" to quit' || pkill -x QuotaWake
 Expected result: QuotaWake runs as a menu bar app with `LSUIElement=true`; it
 does not show a normal Dock app icon.
 
-Useful focused test commands:
+Useful focused test commands (reset-aware core first):
 
 ```bash
+swift test --filter QuotaWakeCoreTests.QuotaReadinessEngineTests
+swift test --filter QuotaWakeCoreTests.QuotaWindowParserTests
+swift test --filter QuotaWakeCoreTests.ClaudeQuotaAdapterTests
+swift test --filter QuotaWakeCoreTests.CodexQuotaAdapterTests
+swift test --filter QuotaWakeCoreTests.ResetAwareAppIntegrationTests
+swift test --filter QuotaWakeCoreTests.ActivityGateTests
 swift test --filter QuotaWakeCoreTests.SettingsAndLogsTests
 swift test --filter QuotaWakeCoreTests.CLIPathDetectorTests
 swift test --filter QuotaWakeCoreTests.CLIExecutorTests
-swift test --filter QuotaWakeCoreTests.ScheduleEngineTests
 swift test --filter QuotaWakeCoreTests.LaunchAtLoginManagerTests
-swift test --filter QuotaWakeCoreTests.WakeHelperTests
 swift test --filter QuotaWakeCoreTests.AppUIModelsTests
 swift test --filter QuotaWakeCoreTests.FirstRunFlowTests
 swift test --filter QuotaWakeCoreTests.UpdateCheckerTests
+swift test --filter QuotaWakeCoreTests.BundleMetadataTests
+swift test --filter QuotaWakeCoreTests.QuotaSourceLicenseTests
 ```
 
 ## UI QA
@@ -122,6 +128,16 @@ Quota confidence labels are intentionally narrow:
   mode.
 - `blocked`: auth, API-billing environment, usage-limit-without-reset, or other
   provider-blocking state prevents an automatic send.
+
+Feedback-loop guardrails around the engine:
+
+- Blocked/unavailable states are not permanent: once the stored state is older
+  than about 15 minutes, the engine requests a re-observation so a one-time
+  condition (logged out once, app-server briefly missing) self-heals.
+- Automatic quota observations are throttled to one probe per tool per
+  10 minutes; manual Observe is immediate.
+- Skip logging is transition-based: the same gated candidate with the same
+  reason logs once, not once per 60-second poll tick.
 
 Provider boundary guardrails:
 
@@ -274,9 +290,9 @@ keys, or keychain profile names in tracked files.
 Earlier prototypes included optional wake-helper support. Phase 4 removed it
 from the active product and release flow: readiness prompts run only as the
 logged-in user while QuotaWake is running, and the active-only gate suppresses
-background sends during idle or unsuitable power states. Keep historical helper
-code quarantined unless a future plan explicitly reintroduces it with new tests
-and release gates.
+background sends during idle or unsuitable power states. The historical helper
+code has been deleted from the tree (it remains in git history); do not
+reintroduce it without a plan that includes new tests and release gates.
 
 ## Troubleshooting
 
@@ -287,8 +303,8 @@ and release gates.
   runtime is available.
 - Unauthenticated Claude/Codex CLI: QuotaWake records the local command failure
   and exit details. Authentication remains owned by the official CLI.
-- Timeout: the tool run is killed after the configured timeout and logged as a
-  timed-out readiness prompt.
+- Timeout: the tool run is killed after the fixed 120-second execution timeout
+  and logged as a timed-out readiness prompt. Timeouts are not user-configurable.
 - Disabled Login Item: macOS can disable the login item in System Settings.
   Re-enable Launch at Login from Settings after resolving that state.
 - Idle or suppressed power state: the active-only gate records a skip and does
