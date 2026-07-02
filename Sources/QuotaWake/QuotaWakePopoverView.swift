@@ -4,6 +4,7 @@ import SwiftUI
 
 struct QuotaWakePopoverView: View {
     @ObservedObject var model: QuotaWakeAppModel
+    @ObservedObject var presentation: PopoverPresentationState
     let openSettings: () -> Void
     var toggleReadinessPaused: () -> Void = {}
     let quit: () -> Void
@@ -11,44 +12,53 @@ struct QuotaWakePopoverView: View {
     var body: some View {
         let state = model.popoverState
 
-        VStack(alignment: .leading, spacing: 13) {
-            PopoverHeader(state: state)
+        ZStack {
+            VStack(alignment: .leading, spacing: 13) {
+                PopoverHeader(state: state)
 
-            VStack(spacing: 9) {
-                ForEach(state.providerStates, id: \.tool) { provider in
-                    ProviderQuotaCard(
-                        provider: provider,
-                        activityNote: activityNote(state),
-                        onObserve: model.observeLastResult
-                    )
+                VStack(spacing: 9) {
+                    ForEach(state.providerStates, id: \.tool) { provider in
+                        ProviderQuotaCard(
+                            provider: provider,
+                            activityNote: activityNote(state),
+                            onObserve: model.observeLastResult
+                        )
+                    }
                 }
+                .layoutPriority(1)
+
+                if let message = model.statusMessage {
+                    Text(message)
+                        .font(.system(size: 11))
+                        .foregroundStyle(QWTheme.popoverInkSecondary)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                }
+
+                RecentActivitySection(items: state.recentActivity, openLogs: openSettings)
+
+                Spacer(minLength: 0)
+
+                PopoverMenuFooter(
+                    reload: model.observeLastResult,
+                    pauseTitle: model.settings.readiness.paused ? "Resume" : "Pause",
+                    pauseSystemImage: model.settings.readiness.paused ? "play.circle" : "pause.circle",
+                    togglePause: toggleReadinessPaused,
+                    openSettings: openSettings,
+                    quit: quit
+                )
             }
-            .layoutPriority(1)
+            .opacity(presentation.isClosing ? 0.22 : 1)
 
-            if let message = model.statusMessage {
-                Text(message)
-                    .font(.system(size: 11))
-                    .foregroundStyle(QWTheme.popoverInkSecondary)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
+            if presentation.isClosing {
+                QWTheme.popoverExitGradient
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
             }
-
-            RecentActivitySection(items: state.recentActivity, openLogs: openSettings)
-
-            Spacer(minLength: 0)
-
-            PopoverMenuFooter(
-                reload: model.observeLastResult,
-                pauseTitle: model.settings.readiness.paused ? "Resume" : "Pause",
-                pauseSystemImage: model.settings.readiness.paused ? "play.circle" : "pause.circle",
-                togglePause: toggleReadinessPaused,
-                openSettings: openSettings,
-                quit: quit
-            )
         }
         .padding(14)
         .frame(width: 360, height: 580)
-        .background(.regularMaterial)
+        .background(.ultraThinMaterial)
         .background(QWTheme.glassSurface)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
@@ -63,6 +73,20 @@ struct QuotaWakePopoverView: View {
         state.activityText.hasSuffix("on")
             ? "sends only while Mac is active"
             : "sends in the background"
+    }
+}
+
+final class PopoverPresentationState: ObservableObject {
+    @Published private(set) var isClosing = false
+
+    func startClosing() {
+        withAnimation(.easeOut(duration: 0.12)) {
+            isClosing = true
+        }
+    }
+
+    func reset() {
+        isClosing = false
     }
 }
 
