@@ -108,6 +108,30 @@ Manual update check fixtures:
 through a fake URL opener. `update-error` writes `settings-update-error.png` and
 must not write `opened-url.txt`.
 
+### User-review capture workflow (required for visual changes)
+
+When a change touches the popover, settings, or menu bar surfaces — layout,
+styling, copy, or interaction states — the user reviews the result from
+screenshots. For every such task:
+
+- Save all user-review captures for the task into one folder:
+  `<repo>/.qa-captures/<YYYYMMDD>-<topic-slug>/` (gitignored). Never scatter
+  captures in the repo root, the evidence directory, or ad-hoc locations.
+- Name files with a review-order number plus a screen/state slug, for example
+  `01-popover-installed.png`, `02-settings-darkmode.png`.
+- Capture everything the user must review: the changed surface in its primary
+  state, plus every affected state the change touches (light/dark appearance,
+  missing-CLI, first-run, update-available/-error, empty and error states). The
+  `Scripts/ui_qa.sh` scenarios above render these surfaces.
+- In the final handoff message, show representative captures inline whenever the
+  chat surface supports images, then report the capture folder's **absolute
+  path** and a one-line description for each capture in review order. A text-only
+  "captured the popover" note without the folder path does not satisfy this.
+- These captures are not committed (`.qa-captures/` is gitignored). Keep them
+  until the user has reviewed them, then remove the folder.
+- Intermediate shots not meant for user review go in the session scratch
+  directory and are removed before handoff.
+
 ## Reset-Aware Readiness Model
 
 QuotaWake's active product model is reset-aware session readiness, not fixed
