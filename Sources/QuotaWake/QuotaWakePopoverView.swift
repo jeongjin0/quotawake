@@ -57,7 +57,7 @@ struct QuotaWakePopoverView: View {
             }
         }
         .padding(14)
-        .frame(width: 360, height: 580)
+        .frame(width: 306, height: 580)
         .background(.ultraThinMaterial)
         .background(QWTheme.glassSurface)
         .overlay(

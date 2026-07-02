@@ -327,7 +327,7 @@ struct PopoverMenuFooter: View {
                 .fill(QWTheme.popoverHairline)
                 .frame(height: 1)
 
-            HStack(spacing: 2) {
+            HStack(spacing: 0) {
                 Button(action: reload) {
                     menuLabel("Reload", systemImage: "arrow.clockwise")
                 }
@@ -354,7 +354,7 @@ struct PopoverMenuFooter: View {
     }
 
     private func menuLabel(_ title: String, systemImage: String) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             Image(systemName: systemImage)
             Text(title)
         }

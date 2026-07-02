@@ -10,7 +10,7 @@ struct QWFooterChipStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 12, weight: .medium))
             .foregroundStyle(foreground)
-            .padding(.horizontal, 9)
+            .padding(.horizontal, 6)
             .frame(minHeight: 28)
             .background(
                 RoundedRectangle(cornerRadius: 6)
