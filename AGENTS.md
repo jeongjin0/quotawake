@@ -56,6 +56,14 @@ This directory owns the native macOS QuotaWake app.
 - Any reintroduced helper must not overwrite unrelated launchd jobs, unrelated
   pmset schedules, or unrelated root-owned files.
 
+## Visual QA Captures
+
+- For any visual change, save all user-review screenshots into one
+  `.qa-captures/<YYYYMMDD>-<topic-slug>/` folder, show representative captures in
+  the handoff, and report that folder's **absolute path** with a per-capture,
+  review-order description. See the user-review capture workflow in
+  `DEVELOPMENT.md`.
+
 ## Useful Commands
 
 Run these from `quotawake_mac/` unless a command says otherwise:

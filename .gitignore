@@ -4,3 +4,5 @@ QuotaWake.app/
 dist/
 *.dmg
 .DS_Store
+.qa-captures/
+.omo/
