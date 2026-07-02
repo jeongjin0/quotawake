@@ -32,11 +32,11 @@ struct RecordingUpdateURLOpener: UpdateURLOpening {
 
 @MainActor
 final class QuotaWakeAppModel: ObservableObject {
-    @Published var settings: AppSettings
-    @Published var logs: [RunLogEntry]
-    @Published var quotaStates: [QuotaWindowState]
-    @Published var resolvedCommands: [ResolvedToolCommand]
-    @Published var isRunning: Bool
+    @Published var settings: AppSettings { didSet { invalidateUIStates() } }
+    @Published var logs: [RunLogEntry] { didSet { invalidateUIStates() } }
+    @Published var quotaStates: [QuotaWindowState] { didSet { invalidateUIStates() } }
+    @Published var resolvedCommands: [ResolvedToolCommand] { didSet { invalidateUIStates() } }
+    @Published var isRunning: Bool { didSet { invalidateUIStates() } }
     @Published var selectedPane: SettingsPaneID?
     @Published var statusMessage: String?
     @Published var firstRunFlow: FirstRunFlow
@@ -119,35 +119,70 @@ final class QuotaWakeAppModel: ObservableObject {
         return model
     }
 
+    // The UI state builders sort the full log history, so they are memoized
+    // and invalidated when an input @Published property changes instead of
+    // being rebuilt on every property access during a render pass.
+    private var cachedPopoverState: PopoverUIState?
+    private var cachedSettingsState: SettingsUIState?
+
     var popoverState: PopoverUIState {
-        QuotaWakeUIStateBuilder.makePopoverState(
+        if let cachedPopoverState {
+            return cachedPopoverState
+        }
+        let state = QuotaWakeUIStateBuilder.makePopoverState(
             settings: settings,
             logs: logs,
             resolvedCommands: resolvedCommands,
             quotaStates: quotaStates,
             isRunning: isRunning
         )
+        cachedPopoverState = state
+        return state
     }
 
     var settingsState: SettingsUIState {
-        QuotaWakeUIStateBuilder.makeSettingsState(
+        if let cachedSettingsState {
+            return cachedSettingsState
+        }
+        let state = QuotaWakeUIStateBuilder.makeSettingsState(
             settings: settings,
             logs: logs,
             resolvedCommands: resolvedCommands,
             quotaStates: quotaStates,
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
         )
+        cachedSettingsState = state
+        return state
+    }
+
+    private func invalidateUIStates() {
+        cachedPopoverState = nil
+        cachedSettingsState = nil
     }
 
     func refresh() {
+        // Assign @Published properties only on real changes; unconditional
+        // reassignment re-rendered the popover and settings on every poll
+        // tick even when nothing changed.
         let loadedSettings = (try? settingsStore.load()) ?? .default
-        settings = loadedSettings
+        if settings != loadedSettings {
+            settings = loadedSettings
+        }
         if !loadedSettings.firstRunCompleted {
             firstRunFlow = FirstRunFlow(settings: loadedSettings)
         }
-        logs = ((try? logStore.readAll()) ?? []).sorted { $0.startedAt > $1.startedAt }
-        quotaStates = ToolKind.allCases.compactMap { try? quotaStateStore.load(tool: $0) }
-        resolvedCommands = resolveCommands(settings: settings)
+        let loadedLogs = ((try? logStore.readAll()) ?? []).sorted { $0.startedAt > $1.startedAt }
+        if logs != loadedLogs {
+            logs = loadedLogs
+        }
+        let loadedQuotaStates = ToolKind.allCases.compactMap { try? quotaStateStore.load(tool: $0) }
+        if quotaStates != loadedQuotaStates {
+            quotaStates = loadedQuotaStates
+        }
+        let resolved = resolveCommands(settings: loadedSettings)
+        if resolvedCommands != resolved {
+            resolvedCommands = resolved
+        }
     }
 
     func runNow() {
@@ -416,7 +451,12 @@ final class QuotaWakeAppModel: ObservableObject {
     private func saveSettings() {
         do {
             try settingsStore.save(settings)
-            resolvedCommands = resolveCommands(settings: settings)
+            // Only tool enable/path changes affect command resolution; prompt
+            // or readiness edits (fired per keystroke) must not re-run CLI
+            // detection.
+            if lastResolvedToolConfiguration != settings.tools {
+                resolvedCommands = resolveCommands(settings: settings)
+            }
         } catch {
             statusMessage = "Settings save failed: \(error.localizedDescription)"
         }
@@ -441,8 +481,11 @@ final class QuotaWakeAppModel: ObservableObject {
         }
     }
 
+    private var lastResolvedToolConfiguration: ToolSettingsSet?
+
     private func resolveCommands(settings: AppSettings) -> [ResolvedToolCommand] {
-        ToolKind.allCases.map { tool in
+        lastResolvedToolConfiguration = settings.tools
+        return ToolKind.allCases.map { tool in
             detector.resolve(tool: tool, manualPath: settings.tools[tool].manualPath)
         }
     }
