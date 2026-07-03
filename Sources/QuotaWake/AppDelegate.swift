@@ -9,6 +9,11 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
     private var setupWindow: NSWindow?
     private var model: QuotaWakeAppModel?
     private let popoverPresentation = PopoverPresentationState()
+    // The popover grows to fit its content; the tab bar hangs below the menu bar
+    // so we pin the top edge and let height changes extend downward.
+    private var popoverContentHeight = PopoverMetrics.size.height
+    private var popoverAnchorTopY: CGFloat?
+    private var popoverAnchorMidX: CGFloat?
     private var localPopoverEventMonitor: Any?
     private var globalPopoverEventMonitor: Any?
     #if DEBUG
@@ -75,7 +80,10 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
                     }
                     model.setReadinessPaused(!model.settings.readiness.paused)
                 },
-                quit: { NSApp.terminate(nil) }
+                quit: { NSApp.terminate(nil) },
+                onContentHeightChange: { [weak self] height in
+                    self?.updatePopoverContentHeight(height)
+                }
             )
         )
         self.popoverWindow = popoverWindow
@@ -193,27 +201,66 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     private func positionPopoverWindow(_ window: NSWindow, below button: NSStatusBarButton) {
-        let size = PopoverMetrics.size
-        window.setContentSize(size)
-
         guard let buttonWindow = button.window, let screen = buttonWindow.screen ?? NSScreen.main else {
+            window.setContentSize(PopoverMetrics.size)
             window.center()
             return
         }
 
         let buttonRectInWindow = button.convert(button.bounds, to: nil)
         let buttonRectOnScreen = buttonWindow.convertToScreen(buttonRectInWindow)
+        let gap: CGFloat = 6
+        // Anchor the popover's top edge just under the status button; height grows
+        // downward from here so the tab bar stays put even when a tab is taller.
+        popoverAnchorTopY = buttonRectOnScreen.minY - gap
+        popoverAnchorMidX = buttonRectOnScreen.midX
+
+        // Measure the current content up front so the very first frame is already
+        // the right height (avoids a one-frame flash before onContentHeightChange).
+        if let contentView = window.contentView {
+            contentView.layoutSubtreeIfNeeded()
+            let measured = contentView.fittingSize.height
+            if measured > 1 {
+                popoverContentHeight = measured
+            }
+        }
+
+        applyPopoverFrame(to: window, screen: screen)
+    }
+
+    /// Size and place the popover from the current content height + stored anchor,
+    /// clamping so it never extends past the bottom of the visible screen.
+    @MainActor
+    private func applyPopoverFrame(to window: NSWindow, screen: NSScreen) {
+        guard let topY = popoverAnchorTopY, let midX = popoverAnchorMidX else {
+            return
+        }
         let visibleFrame = screen.visibleFrame
         let margin: CGFloat = 8
-        let gap: CGFloat = 6
-        var origin = NSPoint(
-            x: buttonRectOnScreen.midX - (size.width / 2),
-            y: buttonRectOnScreen.minY - size.height - gap
-        )
+        let width = PopoverMetrics.size.width
+        let available = topY - (visibleFrame.minY + margin)
+        let height = max(120, min(popoverContentHeight, available))
 
-        origin.x = min(max(origin.x, visibleFrame.minX + margin), visibleFrame.maxX - size.width - margin)
-        origin.y = max(origin.y, visibleFrame.minY + margin)
-        window.setFrame(NSRect(origin: origin, size: size), display: true)
+        var originX = midX - (width / 2)
+        originX = min(max(originX, visibleFrame.minX + margin), visibleFrame.maxX - width - margin)
+        let originY = topY - height
+        window.setFrame(NSRect(x: originX, y: originY, width: width, height: height), display: true)
+    }
+
+    /// SwiftUI reports its intrinsic content height here; resize a visible popover
+    /// to match so tab switches and state changes never clip the footer.
+    @MainActor
+    private func updatePopoverContentHeight(_ height: CGFloat) {
+        let clamped = max(1, height)
+        guard abs(clamped - popoverContentHeight) > 0.5 else {
+            return
+        }
+        popoverContentHeight = clamped
+        guard let window = popoverWindow, window.isVisible,
+              let screen = window.screen ?? NSScreen.main else {
+            return
+        }
+        applyPopoverFrame(to: window, screen: screen)
     }
 
     @MainActor
