@@ -4,14 +4,15 @@ import SwiftUI
 
 struct ProviderQuotaCard: View {
     let provider: ProviderReadinessUIState
-    var activityNote: String = ""
+    /// Whether this provider owns the hero countdown; the next-due card reads slightly brighter.
+    var isNextDue: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 9) {
                 ProviderIdentityMark(provider: provider)
                 Text(provider.displayName)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(QWTheme.popoverInk)
                     .lineLimit(1)
                 Spacer(minLength: 6)
@@ -25,7 +26,7 @@ struct ProviderQuotaCard: View {
                 fill: provider.accent,
                 known: provider.hasFiveHourSignal,
                 footnote: provider.fiveHourResetFootnote,
-                detailNote: provider.hasFiveHourSignal ? activityNote : "No local quota signal yet"
+                detailNote: provider.hasFiveHourSignal ? nil : "No local quota signal yet"
             )
 
             QuotaWindowSection(
@@ -40,11 +41,11 @@ struct ProviderQuotaCard: View {
                     : nil
             )
         }
-        .padding(13)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(QWTheme.cardFill.opacity(0.28))
+                .fill(QWTheme.cardFill.opacity(isNextDue ? 0.5 : 0.3))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10)
@@ -98,18 +99,18 @@ struct QuotaWindowSection: View {
                 + Text(" · \(detailNote)")
                     .foregroundColor(QWTheme.popoverInkTertiary)
             )
-            .font(.system(size: 10.5, weight: .medium))
+            .font(.system(size: 11, weight: .medium))
             .lineLimit(1)
             .truncationMode(.tail)
         } else if let footnote {
             Text(footnote)
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(QWTheme.popoverInkTertiary)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(QWTheme.popoverInkSecondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
         } else if let detailNote {
             Text(detailNote)
-                .font(.system(size: 10.5, weight: .medium))
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(QWTheme.popoverInkTertiary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -169,7 +170,7 @@ struct StripedTrack: View {
                 path.addLine(to: CGPoint(x: x + size.height, y: 0))
                 x += spacing
             }
-            context.stroke(path, with: .color(Color.black.opacity(0.16)), lineWidth: 1.5)
+            context.stroke(path, with: .color(Color.black.opacity(0.12)), lineWidth: 1.5)
         }
         .accessibilityHidden(true)
     }
@@ -194,7 +195,7 @@ struct ProviderIdentityMark: View {
                     .foregroundStyle(.white)
             }
         }
-        .frame(width: 30, height: 30)
+        .frame(width: 26, height: 26)
         .accessibilityLabel("\(provider.displayName) identity")
     }
 }

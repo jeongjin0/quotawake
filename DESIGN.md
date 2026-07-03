@@ -51,6 +51,7 @@ QuotaWake feels like a quiet Mac utility: compact, trustworthy, and easy to scan
 
 | Level | Size | Weight | Line Height | Tracking | Usage |
 | --- | --- | --- | --- | --- | --- |
+| Hero countdown | 30pt | 600 rounded, monospaced digits | system | 0 | Popover "Next reset" countdown only |
 | Window title | 20pt | 600 | system | 0 | Settings pane title |
 | Section title | 14pt | 600 | system | 0 | Group headings |
 | Body | 13pt | 400 | system | 0 | Standard labels and values |
@@ -67,7 +68,7 @@ QuotaWake feels like a quiet Mac utility: compact, trustworthy, and easy to scan
 
 - Use dynamic type-compatible SwiftUI fonts where possible.
 - Do not scale type with window or viewport width.
-- Keep text compact and no smaller than 11pt in app UI, with one allowed exception: compact inline card metadata (e.g. quota-window footnotes) may use 10.5pt.
+- Keep text compact and no smaller than 11pt in app UI, with two allowed exceptions: compact inline card metadata and quiet captions (e.g. the gate note) may use 10.5pt, and tracked uppercase eyebrows (`NEXT RESET`, `RECENT ACTIVITY`) may use 10pt bold.
 
 ## 4. Spacing & Layout
 
@@ -93,6 +94,7 @@ All spacing derives from a 4pt base.
 - Settings rows use a stable label/control column rhythm; long controls can move
   below their labels, but they must not overlap adjacent values or resize the
   window.
+- The popover reads top-down as: quiet header (13pt app name + status pill), "Next reset" hero, provider quota cards, recent activity, one global gate note, footer.
 - Provider quota cards use a stable compact footprint: provider header, quota progress bar, reset countdown line, and only conditional diagnostic detail.
 - The bottom menu footer is separated from provider content by a hairline divider and uses compact icon+text chips: Reload, Pause/Resume, and Settings grouped at the leading edge, Quit at the trailing edge (see Popover Menu Footer below).
 
@@ -115,6 +117,13 @@ All spacing derives from a 4pt base.
 - **States**: normal, disabled, stale.
 - **Accessibility**: value text must carry the semantic status, not color alone.
 
+### Next Reset Hero
+
+- **Structure**: the popover's signature element, directly under the header. A small `NEXT RESET` eyebrow, then the earliest observed 5h reset candidate across runnable providers as a 30pt rounded semibold countdown ("45m", "Due now") with a one-line two-tone subline: provider + window label (semibold secondary ink) and "· at HH:MM" (tertiary ink).
+- **Variants**: known candidate; waiting state. With no local reset signal the hero renders "Waiting for a quota signal" (15pt semibold secondary) over a "Reload to check now" caption — no oversized glyphs or placeholder dashes.
+- **Rules**: the hero states an observed local reset candidate, never provider-verified language. It is the only element allowed the hero countdown type level; keep everything around it quiet.
+- **Accessibility**: the hero combines into one label, e.g. "Next reset in 45m, Claude · 5h window, at 18:04".
+
 ### Provider Quota Card
 
 - **Structure**: a single column card. Top row = provider identity mark and provider name. Below: a 5h quota-window section followed by a Weekly Limit section. Both quota-window sections use the same label/value/bar/reset-footnote rhythm so weekly is treated as a peer signal rather than a muted footer.
@@ -122,7 +131,8 @@ All spacing derives from a 4pt base.
 - **Variants**: per-window known / unknown. When a window has no local signal the bar renders a diagonal striped track and the 5h section shows "No local quota signal yet"; quota state refreshes automatically, so the card carries no inline action.
 - **Reset labels**: 5h and weekly reset countdowns are shown inside their own quota-window sections. Do not put an unlabeled countdown or next-due badge in the card header.
 - **Spacing**: `space3` padding, `space2`–`space3` row gaps, `space1` gaps inside compact metadata lines.
-- **Surface**: a neutral translucent white card (≈0.55 opacity for the next-due provider, ≈0.42 for others) on the glass popover shell with a hairline stroke; one card per provider, never nested colored panels.
+- **Surface**: a neutral translucent white card (≈0.5 opacity for the provider that owns the hero countdown, ≈0.3 for others) on the glass popover shell with a hairline stroke; one card per provider, never nested colored panels.
+- **Notes**: global facts stay out of cards — the active-use gate note renders once above the footer, not per card.
 - **States**: identity accent stays stable so provider identity never relies on text alone.
 - **Accessibility**: provider name, 5h quota, weekly quota, reset countdowns, and status are visible text or accessible labels; the striped track is decorative and hidden from accessibility.
 - **Visibility**: the popover renders provider quota cards only for enabled tools whose CLI is detected and runnable. Missing, invalid, disabled, or broken tools are surfaced through the status pill and Settings tools pane, not as normal quota cards.

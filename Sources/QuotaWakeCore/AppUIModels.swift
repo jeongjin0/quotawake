@@ -60,6 +60,13 @@ public struct PopoverUIState: Equatable, Sendable {
     public let statusTitle: String
     public let statusDetail: String
     public let statusTone: UIStatusTone
+    /// Earliest known 5h reset candidate across runnable providers, e.g. "45m" or "Due now".
+    /// `nil` when no runnable provider has an observed reset candidate.
+    public let nextResetCountdownText: String?
+    /// Provider + window label for the hero countdown, e.g. "Claude · 5h window".
+    public let nextResetProviderText: String?
+    /// Wall-clock time of the hero reset candidate, e.g. "18:43".
+    public let nextResetClockText: String?
     public let readinessSummaryText: String
     public let readinessText: String
     public let providerStatusText: String
@@ -146,10 +153,20 @@ public enum QuotaWakeUIStateBuilder {
         )
 
         let resetSummary = providerResetSummaryText(providerStates)
+        let nextReset = nextResetCandidate(
+            settings: settings,
+            quotaStates: quotaStates,
+            runnableTools: runnableToolSet,
+            now: now,
+            calendar: calendar
+        )
         return PopoverUIState(
             statusTitle: status.title,
             statusDetail: status.detail,
             statusTone: status.tone,
+            nextResetCountdownText: nextReset?.countdown,
+            nextResetProviderText: nextReset?.provider,
+            nextResetClockText: nextReset?.clock,
             readinessSummaryText: popoverReadinessSummaryText(settings: settings),
             readinessText: readinessText(settings: settings),
             providerStatusText: providerStatusText(providerStates),
@@ -212,6 +229,11 @@ public enum QuotaWakeUIStateBuilder {
         var strings = [
             popover.statusTitle,
             popover.statusDetail,
+            popover.nextResetCountdownText,
+            popover.nextResetProviderText,
+            popover.nextResetClockText,
+        ].compactMap { $0 }
+        strings += [
             popover.readinessSummaryText,
             popover.readinessText,
             popover.providerStatusText,
@@ -499,6 +521,39 @@ public enum QuotaWakeUIStateBuilder {
             return "\(minutes)m"
         }
         return "<1m"
+    }
+
+    /// The earliest observed 5h reset candidate across enabled, runnable providers.
+    /// Powers the popover's hero countdown; nil when no local reset signal exists yet.
+    private static func nextResetCandidate(
+        settings: AppSettings,
+        quotaStates: [QuotaWindowState],
+        runnableTools: Set<ToolKind>,
+        now: Date,
+        calendar: Calendar
+    ) -> (countdown: String, provider: String, clock: String)? {
+        let candidate = quotaStates
+            .filter { settings.tools[$0.tool].enabled && runnableTools.contains($0.tool) }
+            .compactMap { state -> (tool: ToolKind, resetAt: Date, windowLabel: String)? in
+                guard let resetAt = state.resetAt else {
+                    return nil
+                }
+                return (state.tool, resetAt, state.windowLabel ?? "5h")
+            }
+            .min { $0.resetAt < $1.resetAt }
+        guard let candidate else {
+            return nil
+        }
+        return (
+            countdown: resetCountdownText(until: candidate.resetAt, now: now),
+            provider: "\(displayName(candidate.tool)) · \(candidate.windowLabel) window",
+            clock: clockText(candidate.resetAt, calendar: calendar)
+        )
+    }
+
+    private static func clockText(_ date: Date, calendar: Calendar) -> String {
+        let components = calendar.dateComponents([.hour, .minute], from: date)
+        return String(format: "%02d:%02d", components.hour ?? 0, components.minute ?? 0)
     }
 
     private static func providerShowsDiagnostic(_ tone: UIStatusTone) -> Bool {
