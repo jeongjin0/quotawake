@@ -201,7 +201,11 @@ struct ProviderDetailTab: View {
             }
             .accessibilityElement(children: .combine)
 
+            ProviderNextResetHero(provider: provider)
+
             VStack(alignment: .leading, spacing: 11) {
+                // The reset footnote is omitted here: the hero above already
+                // states this provider's 5h reset countdown at full size.
                 QuotaWindowSection(
                     title: "5h window",
                     valueText: provider.fiveHourValueText,
@@ -209,7 +213,6 @@ struct ProviderDetailTab: View {
                     fraction: provider.remainingFraction,
                     fill: provider.accent,
                     known: provider.hasFiveHourSignal,
-                    footnote: provider.fiveHourResetFootnote,
                     detailNote: provider.hasFiveHourSignal ? nil : "No local quota signal yet",
                     prominent: true
                 )
@@ -248,6 +251,76 @@ struct ProviderDetailTab: View {
             RecentActivitySection(items: activity, openLogs: openLogs)
                 .padding(.top, 5)
         }
+    }
+}
+
+/// Provider-scoped variant of the overview hero: this provider's 5h reset countdown.
+/// Hidden when the provider has no observed reset candidate — the striped card
+/// below already explains the missing signal.
+struct ProviderNextResetHero: View {
+    let provider: ProviderReadinessUIState
+
+    var body: some View {
+        if let countdown = countdownText {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("NEXT RESET")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundStyle(QWTheme.popoverInkTertiary)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(countdown)
+                        .font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(QWTheme.popoverInk)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    subline
+                    Spacer(minLength: 0)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(accessibilityText(countdown))
+        }
+    }
+
+    private var countdownText: String? {
+        switch provider.resetCountdownText {
+        case "Unknown", "Not used":
+            return nil
+        default:
+            return provider.resetCountdownText
+        }
+    }
+
+    /// "5h window · at 18:04"; the clock is dropped for "Due now".
+    private var subline: some View {
+        (
+            Text("5h window")
+                .fontWeight(.semibold)
+                .foregroundColor(QWTheme.popoverInkSecondary)
+            + Text(clockText.map { " · at \($0)" } ?? "")
+                .foregroundColor(QWTheme.popoverInkTertiary)
+        )
+        .font(.system(size: 11))
+        .lineLimit(1)
+        .truncationMode(.tail)
+    }
+
+    /// Trailing "HH:MM" of the core's "MM/DD HH:MM" reset text.
+    private var clockText: String? {
+        guard provider.resetCountdownText != "Due now",
+              let time = provider.nextResetText.split(separator: " ").last,
+              time.contains(":")
+        else {
+            return nil
+        }
+        return String(time)
+    }
+
+    private func accessibilityText(_ countdown: String) -> String {
+        let detail = ["5h window", clockText.map { "at \($0)" }].compactMap { $0 }.joined(separator: ", ")
+        return countdown == "Due now"
+            ? "Next reset due now, \(detail)"
+            : "Next reset in \(countdown), \(detail)"
     }
 }
 

@@ -83,9 +83,10 @@ The popover is for fast status and control:
   when no local signal exists) — followed by compact per-provider summary rows
   (5h remaining + reset countdown) that open the provider tab, and recent
   activity.
-- Provider tab: that provider's full readout only — status, 5h window and
-  weekly limit with usage bars and reset countdowns, source/confidence/last-run
-  meta rows, and recent activity filtered to the provider.
+- Provider tab: that provider's full readout only — status, a provider-scoped
+  "Next reset" hero countdown (hidden when no reset candidate is observed), 5h
+  window and weekly limit with usage bars, source/confidence/last-run meta
+  rows, and recent activity filtered to the provider.
 - Quota state is observed automatically (periodically and when the popover
   opens); the footer `Reload` action is the manual refresh.
 - Recent activity: up to three compact log rows plus an "All logs" link.

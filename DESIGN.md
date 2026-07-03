@@ -141,7 +141,7 @@ All spacing derives from a 4pt base.
 
 ### Provider Detail Tab
 
-- **Structure**: the selected provider's full readout. Provider header (identity mark, name, status dot + status text), then one card holding the 5h window and Weekly Limit sections in the same label/value/bar/reset-footnote rhythm (prominent variant: 14pt monospaced-digit values, 6pt bars), then quiet Source / Confidence / Last run meta rows, then `RECENT ACTIVITY` filtered to this provider.
+- **Structure**: the selected provider's full readout. Provider header (identity mark, name, status dot + status text), then a provider-scoped Next Reset hero (same 30pt treatment as the overview hero, subline "5h window · at HH:MM", hidden when no reset candidate is observed), then one card holding the 5h window and Weekly Limit sections in the same label/value/bar rhythm (prominent variant: 14pt monospaced-digit values, 6pt bars; the 5h reset footnote is omitted because the hero above states it), then quiet Source / Confidence / Last run meta rows, then `RECENT ACTIVITY` filtered to this provider.
 - **Variants**: per-window known / unknown. When a window has no local signal the bar renders a diagonal striped track and the 5h section shows "No local quota signal yet".
 - **Weekly limit**: a peer quota-window readout — same accent, bar treatment, and its own "Resets in Xd" line when known. Sources: Codex's secondary rate-limit window and Claude's `/usage` "current week" line; both best-effort, degrading to a striped "Unknown" track.
 - **Reset labels**: 5h and weekly reset countdowns live inside their own quota-window sections; no unlabeled countdown badges in the header.
