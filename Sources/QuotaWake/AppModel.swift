@@ -225,6 +225,9 @@ final class QuotaWakeAppModel: ObservableObject {
             while !Task.isCancelled {
                 await Self.runBlocking {
                     try? poller.tick()
+                    // 55s (not 60) so every pass of the 60-second loop
+                    // qualifies as stale and the displayed quota auto-updates.
+                    try? poller.observeIfStale(maxAgeSeconds: 55)
                 }
                 self?.refreshAfterPollTick()
                 let nanoseconds = UInt64(max(1, intervalSeconds) * 1_000_000_000)
@@ -282,6 +285,19 @@ final class QuotaWakeAppModel: ObservableObject {
         settings.readiness.paused = paused
         statusMessage = paused ? "Background readiness paused." : "Background readiness resumed."
         saveSettings()
+    }
+
+    // Silent background refresh of the displayed quota state (popover open):
+    // no isRunning/statusMessage churn, and only tools whose stored state is
+    // older than maxAgeSeconds are re-observed.
+    func observeQuotaIfStale(maxAgeSeconds: TimeInterval = 30) {
+        let poller = self.poller
+        Task {
+            await Self.runBlocking {
+                try? poller.observeIfStale(maxAgeSeconds: maxAgeSeconds)
+            }
+            self.refresh()
+        }
     }
 
     func observeLastResult() {

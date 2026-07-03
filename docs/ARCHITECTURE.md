@@ -17,21 +17,29 @@ build/QA commands live in `DEVELOPMENT.md`.
 
 ```
 60s tick (QuotaWakeAppModel.startResetAwarePoller)
-   └─ QuotaReadinessPoller.tick()
-        ├─ SettingsStore.load()            gate: first-run done, background on, not paused
-        ├─ RunLogStore.readAll()           idempotency + cooldown inputs (read once per tick)
-        ├─ ActivityGate.evaluate()         idle threshold (CGEventSource) + power state (ioreg)
-        └─ per enabled tool (failures isolated per tool):
-             ├─ QuotaWindowStateStore.load(tool)
-             ├─ QuotaReadinessEngine.evaluate(input) ──▶ send / wait / observeNeeded
-             ├─ send:    ToolRunner.run() ──▶ CLIExecutor (timeout, env scrub,
-             │           overlap guard, ProcessTreeTerminator) ──▶ RunLogStore
-             │           └─ QuotaWindowParser.parse(output) ──▶ QuotaWindowStateStore
-             ├─ wait:    transition-deduped skip entry ──▶ RunLogStore
-             └─ observe: (throttled to one probe / tool / 10 min)
-                         CodexQuotaAdapter (codex app-server JSON-RPC) or
-                         ClaudeQuotaAdapter (bounded /usage probe via QuotaProbeRunner)
-                         ──▶ QuotaWindowStateStore + deduped log entry
+   ├─ QuotaReadinessPoller.tick()
+   │    ├─ SettingsStore.load()            gate: first-run done, background on, not paused
+   │    ├─ RunLogStore.readAll()           idempotency + cooldown inputs (read once per tick)
+   │    ├─ ActivityGate.evaluate()         idle threshold (CGEventSource) + power state (ioreg)
+   │    └─ per enabled tool (failures isolated per tool):
+   │         ├─ QuotaWindowStateStore.load(tool)
+   │         ├─ QuotaReadinessEngine.evaluate(input) ──▶ send / wait / observeNeeded
+   │         ├─ send:    ToolRunner.run() ──▶ CLIExecutor (timeout, env scrub,
+   │         │           overlap guard, ProcessTreeTerminator) ──▶ RunLogStore
+   │         │           └─ QuotaWindowParser.parse(output) ──▶ QuotaWindowStateStore
+   │         ├─ wait:    transition-deduped skip entry ──▶ RunLogStore
+   │         └─ observe: (readiness path; throttled to one probe / tool / 10 min)
+   │                     CodexQuotaAdapter (codex app-server JSON-RPC) or
+   │                     ClaudeQuotaAdapter (bounded /usage probe via QuotaProbeRunner)
+   │                     ──▶ QuotaWindowStateStore + deduped log entry
+   └─ QuotaReadinessPoller.observeIfStale(maxAgeSeconds: 55)
+        display-refresh path: re-observes each enabled tool whose stored quota
+        state is older than maxAgeSeconds (5-minute retry backoff after failed
+        observations). Local quota read only — never sends a provider message —
+        so it runs even when background readiness is off or paused; gated only
+        on first-run completion. Opening the popover triggers the same path
+        with a 30-second threshold. Its log entries dedupe on outcome only, so
+        a moving usage percent does not append a row per pass.
 ```
 
 ## Decision engine

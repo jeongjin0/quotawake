@@ -150,6 +150,7 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
 
         popoverPresentation.reset()
         model?.refresh()
+        model?.observeQuotaIfStale(maxAgeSeconds: 30)
         positionPopoverWindow(popoverWindow, below: button)
         popoverWindow.orderFrontRegardless()
         installPopoverEventMonitors()

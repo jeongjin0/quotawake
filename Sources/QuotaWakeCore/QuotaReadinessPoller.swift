@@ -37,8 +37,12 @@ public final class QuotaReadinessPoller {
     // unparseable or unavailable provider does not spawn a probe subprocess on
     // every poll tick. Manual observeNow() is not throttled.
     private let minimumObserveIntervalSeconds: TimeInterval
+    // Retry spacing for observeIfStale after a failed observation (source
+    // unavailable or unparseable output), so a broken local quota source does
+    // not spawn a probe subprocess on every 60-second display refresh.
+    private let failureRetryIntervalSeconds: TimeInterval
     private let lock = NSLock()
-    private var tickRunning = false
+    private var workRunning = false
 
     public init(
         paths: QuotaWakePaths = QuotaWakePaths(),
@@ -52,7 +56,8 @@ public final class QuotaReadinessPoller {
         quotaObserverProvider: @escaping (ResolvedToolCommand, QuotaWakePaths) -> QuotaWindowObserving? = LocalQuotaWindowObserverProvider.makeObserver,
         engine: QuotaReadinessEngine = QuotaReadinessEngine(),
         now: @escaping () -> Date = Date.init,
-        minimumObserveIntervalSeconds: TimeInterval = 600
+        minimumObserveIntervalSeconds: TimeInterval = 600,
+        failureRetryIntervalSeconds: TimeInterval = 300
     ) {
         self.paths = paths
         self.settingsStore = settingsStore
@@ -66,6 +71,7 @@ public final class QuotaReadinessPoller {
         self.engine = engine
         self.now = now
         self.minimumObserveIntervalSeconds = minimumObserveIntervalSeconds
+        self.failureRetryIntervalSeconds = failureRetryIntervalSeconds
     }
 
     public func sendNow() throws {
@@ -90,10 +96,10 @@ public final class QuotaReadinessPoller {
     }
 
     public func tick() throws {
-        guard beginTick() else {
+        guard beginExclusiveWork() else {
             return
         }
-        defer { endTick() }
+        defer { endExclusiveWork() }
 
         let settings = try settingsStore.load()
         guard settings.firstRunCompleted else {
@@ -205,19 +211,77 @@ public final class QuotaReadinessPoller {
         }
     }
 
-    private func beginTick() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !tickRunning else {
+    // Display-freshness observe: re-probes local quota sources for enabled
+    // tools whose stored state is older than maxAgeSeconds so the popover
+    // stays current without a manual Reload. Deliberately not gated on
+    // launchAtLoginEnabled or readiness.paused — observation is a local quota
+    // read and never sends a provider message, and the displayed quota should
+    // stay fresh even when readiness automation is off.
+    public func observeIfStale(maxAgeSeconds: TimeInterval) throws {
+        guard beginExclusiveWork() else {
+            return
+        }
+        defer { endExclusiveWork() }
+
+        let settings = try settingsStore.load()
+        guard settings.firstRunCompleted else {
+            return
+        }
+
+        let logs = try logStore.readAll()
+        let currentTime = now()
+
+        for command in commandsProvider() where settings.tools[command.tool].enabled {
+            do {
+                if let state = (try? quotaStateStore.load(tool: command.tool)) ?? nil {
+                    let threshold = isFailedObservation(state.classification)
+                        ? failureRetryIntervalSeconds
+                        : maxAgeSeconds
+                    if currentTime.timeIntervalSince(state.observedAt) < threshold {
+                        continue
+                    }
+                }
+                try observeQuotaWindow(
+                    command: command,
+                    prompt: settings.prompt,
+                    scheduledAt: currentTime,
+                    reason: .staleProviderState,
+                    previousToolLogs: logs.filter { $0.tool == command.tool },
+                    dedupeOnOutcomeOnly: true
+                )
+            } catch {
+                // One tool's failure (corrupt state file, log I/O error) must
+                // not stop refreshing the remaining tools.
+                continue
+            }
+        }
+    }
+
+    // Failed observations retry on the slower failureRetryIntervalSeconds
+    // cadence; successful (including blocked-provider) observations refresh at
+    // the caller's maxAgeSeconds.
+    private func isFailedObservation(_ classification: QuotaSourceClassification) -> Bool {
+        switch classification {
+        case .quotaUnavailable, .unknownFailure:
+            return true
+        case .sent, .limitReached, .authRequired, .apiBillingEnvPresent, .usageLimitNoReset:
             return false
         }
-        tickRunning = true
+    }
+
+    private func beginExclusiveWork() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !workRunning else {
+            return false
+        }
+        workRunning = true
         return true
     }
 
-    private func endTick() {
+    private func endExclusiveWork() {
         lock.lock()
-        tickRunning = false
+        workRunning = false
         lock.unlock()
     }
 
@@ -333,7 +397,8 @@ public final class QuotaReadinessPoller {
         prompt: String,
         scheduledAt: Date,
         reason: QuotaReadinessObserveReason,
-        previousToolLogs: [RunLogEntry]
+        previousToolLogs: [RunLogEntry],
+        dedupeOnOutcomeOnly: Bool = false
     ) throws {
         let startedAt = now()
         guard let observer = quotaObserverProvider(command, paths) else {
@@ -347,7 +412,7 @@ public final class QuotaReadinessPoller {
                 state: nil,
                 skipReason: "quota_observe_unavailable",
                 summary: "local quota source unavailable: \(observeReasonText(reason))"
-            ), previousToolLogs: previousToolLogs)
+            ), previousToolLogs: previousToolLogs, dedupeOnOutcomeOnly: dedupeOnOutcomeOnly)
             return
         }
 
@@ -363,20 +428,24 @@ public final class QuotaReadinessPoller {
             state: state,
             skipReason: observationSkipReason(for: state),
             summary: state.summary
-        ), previousToolLogs: previousToolLogs)
+        ), previousToolLogs: previousToolLogs, dedupeOnOutcomeOnly: dedupeOnOutcomeOnly)
     }
 
     private func appendObservationIfChanged(
         _ entry: RunLogEntry,
-        previousToolLogs: [RunLogEntry]
+        previousToolLogs: [RunLogEntry],
+        dedupeOnOutcomeOnly: Bool = false
     ) throws {
         // Repeated observations with the same outcome (e.g. app-server still
         // unavailable) would otherwise append an identical entry per probe.
+        // On the frequent display-refresh cadence (dedupeOnOutcomeOnly), a
+        // moving usage percent in the summary must not append a row per
+        // observation either, so the summary is ignored for dedupe there.
         if let latest = previousToolLogs.last,
            latest.status == .skippedMissedWindow,
            latest.eventId.hasPrefix("quota-observe-"),
            latest.skipReason == entry.skipReason,
-           latest.stdoutSummary == entry.stdoutSummary {
+           dedupeOnOutcomeOnly || latest.stdoutSummary == entry.stdoutSummary {
             return
         }
         try logStore.append(entry)
