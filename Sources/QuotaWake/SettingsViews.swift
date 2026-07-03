@@ -6,7 +6,7 @@ enum QWTheme {
     static let windowBackground = Color(nsColor: .windowBackgroundColor)
     static let sidebarBackground = Color(nsColor: .underPageBackgroundColor)
     static let surface = Color(nsColor: .controlBackgroundColor)
-    static let glassSurface = Color(nsColor: .windowBackgroundColor).opacity(0.34)
+    static let glassSurface = Color(nsColor: .windowBackgroundColor).opacity(0.49)
     static let glassPressed = Color(nsColor: .controlAccentColor).opacity(0.10)
     static let surfaceSubtle = Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
     static let border = Color(nsColor: .separatorColor)
