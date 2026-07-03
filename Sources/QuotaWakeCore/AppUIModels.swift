@@ -325,7 +325,7 @@ public enum QuotaWakeUIStateBuilder {
         }
 
         if providerStates.contains(where: { $0.statusText == "Quota unknown" }) {
-            return ("Observation needed", "Observe the last result before background readiness sends.", .warning)
+            return ("Observation needed", "Waiting for automatic quota observation before background readiness sends.", .warning)
         }
 
         return ("Ready", "Window readiness is ready.", .success)
@@ -604,7 +604,7 @@ public enum QuotaWakeUIStateBuilder {
                 resetCountdownText: "Unknown",
                 confidenceText: confidenceText(.unknown),
                 sourceText: sourceText(.none),
-                detailText: "Observe from the last provider result before background sends.",
+                detailText: "Waiting for the first automatic quota observation.",
                 diagnosticText: "Unknown · None",
                 showsDiagnosticDetail: true
             )

@@ -644,20 +644,10 @@ struct ReadinessPane: View {
             PaneGroup("Actions") {
                 PaneControlRow(
                     label: "Manual actions",
-                    detail: "Run or observe readiness without waiting for the next schedule.",
+                    detail: "Run readiness now without waiting for the next schedule.",
                     placement: .fullWidth
                 ) {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 8) {
-                            readinessNowButton
-                            observeLastResultButton
-                        }
-
-                        VStack(alignment: .trailing, spacing: 8) {
-                            readinessNowButton
-                            observeLastResultButton
-                        }
-                    }
+                    readinessNowButton
                 }
             }
         }
@@ -671,15 +661,6 @@ struct ReadinessPane: View {
         }
         .buttonStyle(QWCommandButtonStyle(prominent: true))
         .disabled(!model.popoverState.canRunNow)
-    }
-
-    private var observeLastResultButton: some View {
-        Button {
-            model.observeLastResult()
-        } label: {
-            Label("Observe Last Result", systemImage: "arrow.triangle.2.circlepath")
-        }
-        .buttonStyle(QWCommandButtonStyle())
     }
 }
 

@@ -5,7 +5,6 @@ import SwiftUI
 struct ProviderQuotaCard: View {
     let provider: ProviderReadinessUIState
     var activityNote: String = ""
-    var onObserve: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -26,9 +25,7 @@ struct ProviderQuotaCard: View {
                 fill: provider.accent,
                 known: provider.hasFiveHourSignal,
                 footnote: provider.fiveHourResetFootnote,
-                detailNote: provider.hasFiveHourSignal ? activityNote : "No local quota signal yet",
-                actionTitle: provider.hasFiveHourSignal ? nil : "Observe",
-                onAction: onObserve
+                detailNote: provider.hasFiveHourSignal ? activityNote : "No local quota signal yet"
             )
 
             QuotaWindowSection(
@@ -68,8 +65,6 @@ struct QuotaWindowSection: View {
     let known: Bool
     var footnote: String?
     var detailNote: String?
-    var actionTitle: String?
-    var onAction: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -84,17 +79,8 @@ struct QuotaWindowSection: View {
                     .lineLimit(1)
             }
             QuotaBar(fraction: fraction, fill: fill, known: known)
-            if footnote != nil || detailNote != nil || actionTitle != nil {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    detailText
-                    Spacer(minLength: 0)
-                    if let actionTitle, let onAction {
-                        Button(action: onAction) {
-                            Text(actionTitle)
-                        }
-                        .buttonStyle(QWInlineChipButtonStyle())
-                    }
-                }
+            if footnote != nil || detailNote != nil {
+                detailText
             }
         }
         .accessibilityElement(children: .ignore)

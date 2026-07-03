@@ -158,7 +158,7 @@ Everything lives in the **Settings** window (menu bar → *Settings…*):
 |---|---|
 | **General** | Version · Launch at Login · Background readiness (pause/resume) · Send readiness now · Check for Updates |
 | **Tools** | Claude / Codex toggles · CLI path detection · manual path override · test |
-| **Window Readiness** | Active-only gate · idle threshold · reset estimation · cooldown · observe/send controls |
+| **Window Readiness** | Active-only gate · idle threshold · reset estimation · cooldown · manual send control |
 | **Prompt** | The readiness prompt (default `hi`) |
 | **Logs** | Recent 30-day run history with decision source, confidence, and per-run status |
 
