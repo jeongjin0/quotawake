@@ -74,17 +74,24 @@ App identifier:
 
 The popover is for fast status and control:
 
-- A "Next reset" hero summary under the header: the earliest observed 5h reset
-  candidate across runnable providers, shown as a large countdown with the
-  provider, window label, and wall-clock time. When no local signal exists it
-  shows a waiting state that points at the footer `Reload` action.
-- Per-provider quota cards (Claude, Codex) for enabled, runnable tools: 5h
-  window and weekly limit, each with usage bar and reset countdown.
+- A provider tab bar under the header: `Overview` plus one tab per enabled,
+  runnable provider (Claude, Codex), so the surface scales as providers are
+  added.
+- Overview tab: a "Next reset" hero — the earliest observed 5h reset candidate
+  across runnable providers as a large countdown with provider, window label,
+  and wall-clock time (a waiting state points at the footer `Reload` action
+  when no local signal exists) — followed by compact per-provider summary rows
+  (5h remaining + reset countdown) that open the provider tab, and recent
+  activity.
+- Provider tab: that provider's full readout only — status, 5h window and
+  weekly limit with usage bars and reset countdowns, source/confidence/last-run
+  meta rows, and recent activity filtered to the provider.
 - Quota state is observed automatically (periodically and when the popover
   opens); the footer `Reload` action is the manual refresh.
 - Recent activity: up to three compact log rows plus an "All logs" link.
 - One global active-use gate note above the footer ("Sends only while your Mac
-  is active" / "Sends in the background"); the note is not repeated per card.
+  is active" / "Sends in the background"); the note is not repeated per
+  provider.
 - Footer actions: Reload, Pause/Resume, Settings, Quit.
 
 Manual "Send readiness now" lives in Settings (General and Window Readiness),

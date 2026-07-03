@@ -2,31 +2,59 @@ import AppKit
 import QuotaWakeCore
 import SwiftUI
 
+/// Top-level popover tab: the overview or a single provider's detail.
+enum PopoverTab: Equatable {
+    case overview
+    case provider(ToolKind)
+}
+
+/// Single source of truth for the fixed popover footprint (no resize jitter).
+enum PopoverMetrics {
+    static let size = NSSize(width: 306, height: 500)
+}
+
 struct QuotaWakePopoverView: View {
     @ObservedObject var model: QuotaWakeAppModel
     @ObservedObject var presentation: PopoverPresentationState
     let openSettings: () -> Void
     var toggleReadinessPaused: () -> Void = {}
     let quit: () -> Void
+    var initialTab: PopoverTab = .overview
+
+    @State private var selectedTab: PopoverTab?
 
     var body: some View {
         let state = model.popoverState
+        let tab = effectiveTab(state)
 
         ZStack {
             VStack(alignment: .leading, spacing: 11) {
                 PopoverHeader(state: state)
 
-                NextResetHero(state: state)
+                PopoverTabBar(
+                    providers: state.providerStates,
+                    selection: Binding(
+                        get: { tab },
+                        set: { selectedTab = $0 }
+                    )
+                )
 
-                VStack(spacing: 8) {
-                    ForEach(state.providerStates, id: \.tool) { provider in
-                        ProviderQuotaCard(
+                switch tab {
+                case .overview:
+                    PopoverOverviewTab(
+                        state: state,
+                        openLogs: openSettings,
+                        selectProvider: { selectedTab = .provider($0) }
+                    )
+                case .provider(let tool):
+                    if let provider = state.providerStates.first(where: { $0.tool == tool }) {
+                        ProviderDetailTab(
                             provider: provider,
-                            isNextDue: provider.displayNameMatchesHero(state)
+                            activity: state.recentActivity.filter { $0.toolText == provider.displayName },
+                            openLogs: openSettings
                         )
                     }
                 }
-                .layoutPriority(1)
 
                 if let message = model.statusMessage {
                     Text(message)
@@ -35,8 +63,6 @@ struct QuotaWakePopoverView: View {
                         .lineLimit(2)
                         .truncationMode(.tail)
                 }
-
-                RecentActivitySection(items: state.recentActivity, openLogs: openSettings)
 
                 Spacer(minLength: 0)
 
@@ -62,7 +88,7 @@ struct QuotaWakePopoverView: View {
             }
         }
         .padding(14)
-        .frame(width: 306, height: 580)
+        .frame(width: PopoverMetrics.size.width, height: PopoverMetrics.size.height)
         .background(.ultraThinMaterial)
         .background(QWTheme.glassSurface)
         .overlay(
@@ -73,18 +99,21 @@ struct QuotaWakePopoverView: View {
         .environment(\.colorScheme, .light)
     }
 
+    /// The requested tab, falling back to the overview when the provider is not runnable.
+    private func effectiveTab(_ state: PopoverUIState) -> PopoverTab {
+        let requested = selectedTab ?? initialTab
+        if case .provider(let tool) = requested,
+           !state.providerStates.contains(where: { $0.tool == tool }) {
+            return .overview
+        }
+        return requested
+    }
+
     /// One global gate note above the footer, driven by the active-use gate.
     private func activityNote(_ state: PopoverUIState) -> String {
         state.activityText.hasSuffix("on")
             ? "Sends only while your Mac is active"
             : "Sends in the background"
-    }
-}
-
-private extension ProviderReadinessUIState {
-    /// Whether this provider owns the hero countdown (drives card emphasis).
-    func displayNameMatchesHero(_ state: PopoverUIState) -> Bool {
-        state.nextResetProviderText?.hasPrefix(displayName) == true
     }
 }
 
@@ -119,7 +148,7 @@ struct PopoverHeader: View {
     }
 }
 
-/// The popover's signature answer: how long until the next observed reset candidate.
+/// The overview's signature answer: how long until the next observed reset candidate.
 struct NextResetHero: View {
     let state: PopoverUIState
 
