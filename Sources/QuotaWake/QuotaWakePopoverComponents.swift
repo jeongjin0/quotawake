@@ -662,6 +662,10 @@ struct PopoverMenuFooter: View {
         HStack(spacing: 4) {
             Image(systemName: systemImage)
             Text(title)
+                .lineLimit(1)
         }
+        // Chip labels must never wrap ("Setting\ns") when the Pause/Resume
+        // swap changes the row's total width.
+        .fixedSize()
     }
 }

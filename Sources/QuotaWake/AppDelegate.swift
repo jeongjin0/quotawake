@@ -149,12 +149,19 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         }
 
         popoverPresentation.reset()
-        model?.refresh()
-        model?.observeQuotaIfStale(maxAgeSeconds: 30)
         positionPopoverWindow(popoverWindow, below: button)
         popoverWindow.orderFrontRegardless()
         installPopoverEventMonitors()
         NSApp.activate(ignoringOtherApps: true)
+
+        // Refresh after the panel is on screen: refresh() reads logs and
+        // re-detects CLI paths synchronously, and doing that before ordering
+        // the window front made the popover appear a beat after the click.
+        // The cached state renders instantly and updates in place.
+        DispatchQueue.main.async { [weak self] in
+            self?.model?.refresh()
+            self?.model?.observeQuotaIfStale(maxAgeSeconds: 30)
+        }
     }
 
     @MainActor
