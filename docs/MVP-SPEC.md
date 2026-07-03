@@ -76,7 +76,8 @@ The popover is for fast status and control:
 
 - Per-provider quota cards (Claude, Codex) for enabled, runnable tools: 5h
   window and weekly limit, each with usage bar and reset countdown.
-- Unknown quota state surfaces an inline `Observe` chip on the affected card.
+- Quota state is observed automatically (periodically and when the popover
+  opens); the footer `Reload` action is the manual refresh.
 - Recent activity: up to three compact log rows plus an "All logs" link.
 - Footer actions: Reload, Pause/Resume, Settings, Quit.
 
@@ -105,7 +106,7 @@ Recommended sections:
    - Active-only gate.
    - Idle threshold.
    - Reset estimation on/off.
-   - Cooldown and observation/send controls.
+   - Cooldown and manual readiness-send control.
 4. Prompt
    - Readiness prompt, default `hi`.
 5. Logs

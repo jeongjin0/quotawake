@@ -26,23 +26,6 @@ struct QWFooterChipStyle: ButtonStyle {
     }
 }
 
-/// Small inline action chip used inside a card (v2 "Observe").
-struct QWInlineChipButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 10.5, weight: .semibold))
-            .foregroundStyle(isEnabled ? QWTheme.pillBlue : Color.black.opacity(0.3))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(QWTheme.pillBlue.opacity(configuration.isPressed ? 0.18 : 0.10))
-            )
-    }
-}
-
 extension UIStatusTone {
     /// Redesign v2 chip/pill color for the popover's fixed light mode.
     var qwPillColor: Color {

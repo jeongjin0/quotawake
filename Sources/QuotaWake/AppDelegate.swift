@@ -878,7 +878,7 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
                     decisionSource: .providerState,
                     confidence: .unknown,
                     reason: "unknown_quota",
-                    summary: "Quota state unknown; observe last result before sending."
+                    summary: "Quota state unknown; waiting for automatic observation."
                 ))
             }
         case "quota-unavailable":

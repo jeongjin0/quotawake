@@ -67,7 +67,7 @@ QuotaWake feels like a quiet Mac utility: compact, trustworthy, and easy to scan
 
 - Use dynamic type-compatible SwiftUI fonts where possible.
 - Do not scale type with window or viewport width.
-- Keep text compact and no smaller than 11pt in app UI, with one allowed exception: compact inline chips (e.g. the Observe chip) may use 10.5pt.
+- Keep text compact and no smaller than 11pt in app UI, with one allowed exception: compact inline card metadata (e.g. quota-window footnotes) may use 10.5pt.
 
 ## 4. Spacing & Layout
 
@@ -119,7 +119,7 @@ All spacing derives from a 4pt base.
 
 - **Structure**: a single column card. Top row = provider identity mark and provider name. Below: a 5h quota-window section followed by a Weekly Limit section. Both quota-window sections use the same label/value/bar/reset-footnote rhythm so weekly is treated as a peer signal rather than a muted footer.
 - **Identity accents**: Claude `#D97757` (warm coral), Codex `#0D0D0D` (near-black). The accent appears only on the identity mark and bar fill — never as a card background wash.
-- **Variants**: per-window known / unknown. When a window has no local signal the bar renders a diagonal striped track; the 5h section shows "No local quota signal yet" with an inline `Observe` chip.
+- **Variants**: per-window known / unknown. When a window has no local signal the bar renders a diagonal striped track and the 5h section shows "No local quota signal yet"; quota state refreshes automatically, so the card carries no inline action.
 - **Reset labels**: 5h and weekly reset countdowns are shown inside their own quota-window sections. Do not put an unlabeled countdown or next-due badge in the card header.
 - **Spacing**: `space3` padding, `space2`–`space3` row gaps, `space1` gaps inside compact metadata lines.
 - **Surface**: a neutral translucent white card (≈0.55 opacity for the next-due provider, ≈0.42 for others) on the glass popover shell with a hairline stroke; one card per provider, never nested colored panels.
@@ -141,9 +141,9 @@ All spacing derives from a 4pt base.
 
 ### Popover Secondary Actions
 
-- **Structure**: per-context inline actions rather than a standalone button row. The unknown-quota state surfaces an inline `Observe` chip on the affected provider card; manual refresh lives as `Reload` in the footer.
-- **Variants**: inline chip (Observe), footer chip (Reload).
-- **States**: shown only when meaningful — `Observe` appears when a provider has no local quota signal.
+- **Structure**: no standalone button row and no inline card actions. Quota state refreshes automatically (periodically and when the popover opens); manual refresh lives as `Reload` in the footer.
+- **Variants**: footer chip (Reload).
+- **States**: shown only when meaningful.
 - **Accessibility**: labels are explicit and keyboard-focusable.
 
 ### Popover Menu Footer

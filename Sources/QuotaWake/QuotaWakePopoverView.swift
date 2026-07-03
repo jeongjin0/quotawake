@@ -20,8 +20,7 @@ struct QuotaWakePopoverView: View {
                     ForEach(state.providerStates, id: \.tool) { provider in
                         ProviderQuotaCard(
                             provider: provider,
-                            activityNote: activityNote(state),
-                            onObserve: model.observeLastResult
+                            activityNote: activityNote(state)
                         )
                     }
                 }
