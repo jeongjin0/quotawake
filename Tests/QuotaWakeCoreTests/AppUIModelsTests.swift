@@ -88,6 +88,47 @@ final class AppUIModelsTests: XCTestCase {
         XCTAssertEqual(failed.lastRunText, "Codex failed")
     }
 
+    func testRecentActivityShowsOutcomesAndActionableSkipsButHidesHousekeeping() throws {
+        let calendar = utcCalendar()
+        let now = date("2026-06-28T05:30:00Z")
+        var settings = AppSettings.default
+        settings.firstRunCompleted = true
+        let foundCommands = [
+            command(tool: .claude, status: .found, path: "/usr/local/bin/claude"),
+            command(tool: .codex, status: .found, path: "/usr/local/bin/codex")
+        ]
+
+        // Interleave real outcomes with the housekeeping skips/observation probes
+        // that dominate the log in practice. Only three slots are available, so a
+        // naive "latest 3" would show nothing but noise.
+        let logs = [
+            log(status: .sent, tool: .claude, at: now.addingTimeInterval(-600)),
+            log(status: .skippedMissedWindow, tool: .codex, at: now.addingTimeInterval(-500), skipReason: "idle"),
+            log(status: .skippedMissedWindow, tool: .claude, at: now.addingTimeInterval(-400), skipReason: "cooldown"),
+            log(status: .skippedMissedWindow, tool: .codex, at: now.addingTimeInterval(-300), skipReason: "quota_observed"),
+            log(status: .skippedOverlap, tool: .claude, at: now.addingTimeInterval(-250)),
+            log(status: .skippedMissedWindow, tool: .codex, at: now.addingTimeInterval(-200), skipReason: "provider_blocked"),
+            log(status: .failed, tool: .codex, at: now.addingTimeInterval(-100), errorSummary: "CLI exited with code 2")
+        ]
+
+        let state = QuotaWakeUIStateBuilder.makePopoverState(
+            settings: settings,
+            logs: logs,
+            resolvedCommands: foundCommands,
+            now: now,
+            calendar: calendar
+        )
+
+        // Newest-first: failed (outcome), provider_blocked (actionable skip), sent
+        // (outcome). Idle/cooldown/observe/overlap housekeeping is filtered out.
+        XCTAssertEqual(state.recentActivity.count, 3)
+        XCTAssertEqual(state.recentActivity.map(\.statusText), ["failed", "skipped missed window", "sent"])
+        XCTAssertTrue(state.recentActivity.contains { $0.summaryText.contains("provider_blocked") })
+        XCTAssertFalse(state.recentActivity.contains { $0.summaryText.contains("idle") })
+        XCTAssertFalse(state.recentActivity.contains { $0.summaryText.contains("cooldown") })
+        XCTAssertFalse(state.recentActivity.contains { $0.statusText == "skipped overlap" })
+    }
+
     func testToolStatesCoverMissingMalformedDisabledAndLongTextWithoutProhibitedCopy() throws {
         let calendar = utcCalendar()
         var settings = AppSettings.default

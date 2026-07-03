@@ -183,6 +183,7 @@ public enum QuotaWakeUIStateBuilder {
             providerStates: providerStates,
             recentActivity: logs
                 .sorted { $0.startedAt > $1.startedAt }
+                .filter(isRecentActivityRow)
                 .prefix(3)
                 .map { logRow($0, calendar: calendar) }
         )
@@ -904,6 +905,28 @@ public enum QuotaWakeUIStateBuilder {
             return "Local quota source is unavailable."
         case .unknownFailure:
             return "Provider state could not be classified."
+        }
+    }
+
+    // Skip reasons that are worth surfacing in the popover because the user has
+    // to act on them (log in / fix auth). Everything else in `.skippedMissedWindow`
+    // is housekeeping — idle gating, cooldown, duplicate windows, quota-observation
+    // probes — and only clutters the few Recent sessions slots.
+    private static let actionableSkipReasons: Set<String> = ["provider_blocked", "quota_observe_blocked"]
+
+    // The Recent sessions popover has only a handful of slots and answers one
+    // question: "did a wake actually fire, and did it succeed?" Provider-invoked
+    // outcomes answer that; routine skips and observation probes stay in the full
+    // log (Settings) and on-disk JSONL but are hidden here so real sends aren't
+    // pushed off-screen. Actionable auth-blocked skips are the exception.
+    private static func isRecentActivityRow(_ entry: RunLogEntry) -> Bool {
+        switch entry.status {
+        case .sent, .failed, .timedOut:
+            return true
+        case .skippedOverlap:
+            return false
+        case .skippedMissedWindow:
+            return entry.skipReason.map(actionableSkipReasons.contains) ?? false
         }
     }
 
