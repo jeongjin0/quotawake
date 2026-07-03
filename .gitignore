@@ -4,3 +4,7 @@ QuotaWake.app/
 dist/
 *.dmg
 .DS_Store
+
+.release.local.env
+.qa-captures/
+.omo/

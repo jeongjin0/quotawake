@@ -2,9 +2,15 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LOCAL_ENV="${ROOT_DIR}/.release.local.env"
 APP_PATH="${ROOT_DIR}/QuotaWake.app"
 DMG_PATH=""
 DRY_RUN=0
+
+if [[ -f "${LOCAL_ENV}" ]]; then
+  source "${LOCAL_ENV}"
+fi
+
 IDENTITY="${QUOTAWAKE_DEVELOPER_ID_APPLICATION:-}"
 NOTARY_PROFILE="${QUOTAWAKE_NOTARY_PROFILE:-}"
 ASC_KEY_P8="${APP_STORE_CONNECT_API_KEY_P8:-}"
@@ -13,7 +19,7 @@ ASC_ISSUER_ID="${APP_STORE_CONNECT_ISSUER_ID:-}"
 
 usage() {
   cat <<'EOF'
-Usage: Scripts/sign-and-notarize.sh [--app <path>] [--dmg <path>] [--dry-run]
+Usage: Scripts/sign-and-notarize.sh [--app <path>] [--dmg <path>] [--identity <name>] [--notary-profile <name>] [--dry-run]
 
 App-only mode signs and verifies the app bundle. It does not submit a raw .app
 to notarization because notarytool accepts archive formats such as dmg, pkg, or
@@ -39,6 +45,63 @@ require_value() {
   fi
 }
 
+timestamp_preflight() {
+  local work_dir payload query reply
+  work_dir="$(mktemp -d "${TMPDIR:-/tmp}/quotawake-timestamp.XXXXXX")"
+  payload="${work_dir}/payload"
+  query="${work_dir}/query.tsq"
+  reply="${work_dir}/reply.tsr"
+
+  printf 'quotawake timestamp preflight' > "${payload}"
+  if ! openssl ts -query -data "${payload}" -sha256 -cert -out "${query}" >/dev/null 2>&1; then
+    rm -rf "${work_dir}"
+    return 1
+  fi
+  if ! curl --fail --silent --show-error --http1.1 \
+    -H 'Content-Type: application/timestamp-query' \
+    --data-binary @"${query}" \
+    http://timestamp.apple.com/ts01 \
+    -o "${reply}"; then
+    rm -rf "${work_dir}"
+    return 1
+  fi
+  if ! openssl ts -reply -in "${reply}" -text 2>/dev/null | grep -q 'Status: Granted'; then
+    rm -rf "${work_dir}"
+    return 1
+  fi
+  rm -rf "${work_dir}"
+}
+
+preflight_notarization_credentials() {
+  if [[ -z "${DMG_PATH}" ]]; then
+    return
+  fi
+
+  if [[ -n "${NOTARY_PROFILE}" ]]; then
+    if ! xcrun notarytool history --keychain-profile "${NOTARY_PROFILE}" --output-format json >/dev/null; then
+      echo "Notarization keychain profile failed: ${NOTARY_PROFILE}" >&2
+      echo "Set QUOTAWAKE_NOTARY_PROFILE in .release.local.env or pass --notary-profile with a valid profile." >&2
+      exit 78
+    fi
+    return
+  fi
+
+  if [[ -n "${ASC_KEY_P8}" && -n "${ASC_KEY_ID}" && -n "${ASC_ISSUER_ID}" ]]; then
+    if ! xcrun notarytool history \
+      --key "${ASC_KEY_P8}" \
+      --key-id "${ASC_KEY_ID}" \
+      --issuer "${ASC_ISSUER_ID}" \
+      --output-format json >/dev/null; then
+      echo "App Store Connect API notarization credentials failed." >&2
+      exit 78
+    fi
+    return
+  fi
+
+  echo "Missing notarization credentials: set QUOTAWAKE_NOTARY_PROFILE or all App Store Connect API variables." >&2
+  exit 78
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --app)
@@ -49,6 +112,16 @@ while [[ $# -gt 0 ]]; do
     --dmg)
       require_value "$@"
       DMG_PATH="$2"
+      shift 2
+      ;;
+    --identity)
+      require_value "$@"
+      IDENTITY="$2"
+      shift 2
+      ;;
+    --notary-profile)
+      require_value "$@"
+      NOTARY_PROFILE="$2"
       shift 2
       ;;
     --dry-run)
@@ -87,7 +160,7 @@ if [[ "${DRY_RUN}" == "1" ]]; then
       echo "DMG exists: no (required for a real notarization run)"
     fi
     if [[ -n "${NOTARY_PROFILE}" ]]; then
-      echo "Notarization credentials: keychain profile configured"
+      echo "Notarization credentials: keychain profile '${NOTARY_PROFILE}' configured"
     elif [[ -n "${ASC_KEY_P8}" && -n "${ASC_KEY_ID}" && -n "${ASC_ISSUER_ID}" ]]; then
       echo "Notarization credentials: App Store Connect API credentials configured"
     else
@@ -129,6 +202,10 @@ if [[ -n "${DMG_PATH}" ]]; then
     notary_args=(--key "${ASC_KEY_P8}" --key-id "${ASC_KEY_ID}" --issuer "${ASC_ISSUER_ID}")
   fi
 fi
+
+echo "Checking Apple timestamp service..."
+timestamp_preflight
+preflight_notarization_credentials
 
 find "${APP_PATH}/Contents" -type f -perm -111 -print0 | while IFS= read -r -d '' executable; do
   codesign --force --timestamp --options runtime --sign "${IDENTITY}" "${executable}"

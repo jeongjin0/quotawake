@@ -64,6 +64,10 @@ export APP_STORE_CONNECT_KEY_ID="..."
 export APP_STORE_CONNECT_ISSUER_ID="..."
 ```
 
+For a local release workstation, optional defaults may live in ignored
+`.release.local.env`, for example a keychain profile alias or signing identity.
+Do not commit that file.
+
 Keep private keys and profiles out of git, logs, issue bodies, release notes,
 and uploaded artifacts.
 
@@ -94,6 +98,21 @@ with release signing until the timestamp reply is granted.
 ## Build And Package
 
 The implementation scripts are expected to live under `Scripts/`:
+
+```bash
+./Scripts/build_release_dmg.sh \
+  --capture-dir "$CAPTURE_DIR" \
+  --output "$DMG_PATH"
+```
+
+`Scripts/build_release_dmg.sh` is the default public/prerelease DMG builder. It
+runs tests, builds and packages the release app, signs the app, creates the DMG,
+signs/notarizes/staples the final DMG, then runs signing, Gatekeeper, stapler,
+Finder-presentation, and checksum verification. Use the manual commands below
+only for debugging a failed step or re-signing an existing app with
+`--skip-build`.
+
+Manual build steps, when debugging:
 
 ```bash
 swift test
@@ -143,11 +162,9 @@ The DMG script should:
 - create a staging directory containing `QuotaWake.app` and an `Applications`
   symlink;
 - set the volume name to `QuotaWake`;
+- apply Finder presentation metadata before compression;
 - convert to a compressed read-only DMG;
-- write build evidence when `--capture-dir` is supplied without claiming Finder
-  presentation was applied or measured;
-- overwrite `finder-presentation.txt` with a status marker that says manual
-  Finder measurement is still required;
+- write build and Finder presentation evidence when `--capture-dir` is supplied;
 - print the SHA-256 digest.
 
 After DMG creation, run release signing/notarization on the final DMG:
@@ -168,16 +185,17 @@ Target QuotaWake DMG presentation contract for the manual release gate:
 - `Applications` symlink position: `{480, 170}`;
 - icon size: `128`;
 - text size: `16`;
-- background path inside the mounted DMG: `.background/background.png`.
+- generated background asset inside the mounted DMG:
+  `.background/background.png`;
+- mounted installer screenshot showing the visible install surface.
 
 If the final design assets choose different values, update this contract before
 release. A mounted DMG that falls back to default Finder icon size, text size,
 or layout fails the release gate.
 
-Do not treat the first DMG that `hdiutil` creates as release-ready. The current
-DMG script does not apply or measure Finder presentation metadata. Finder
-presentation can drift silently, so the final mounted artifact must be checked
-after compression, signing, notarization, and stapling.
+Do not treat an unsigned intermediate DMG as release-ready. Finder presentation
+can drift silently, so the final mounted artifact must be checked after
+compression, signing, notarization, and stapling.
 
 ## Required Verification Before Upload
 
@@ -200,22 +218,21 @@ blocking auth, usage, path, or API-billing failure and stop the release.
 Final DMG presentation verification:
 
 ```bash
-hdiutil attach -readonly "$DMG_PATH"
-osascript -e 'tell application "Finder" to get bounds of container window of disk "QuotaWake"'
-osascript -e 'tell application "Finder" to get icon size of icon view options of container window of disk "QuotaWake"'
-osascript -e 'tell application "Finder" to get text size of icon view options of container window of disk "QuotaWake"'
-osascript -e 'tell application "Finder" to get background picture of icon view options of container window of disk "QuotaWake"'
-osascript -e 'tell application "Finder" to get name of every item of container window of disk "QuotaWake"'
-screencapture -x "$CAPTURE_DIR/dmg-finder-window.png"
-hdiutil detach "/Volumes/QuotaWake"
+./Scripts/verify_dmg_presentation.sh --dmg "$DMG_PATH" --capture-dir "$CAPTURE_DIR"
 ```
 
 The mounted Finder window must show the intended QuotaWake install surface, not
-Finder defaults. The capture directory should include:
+Finder defaults. `Scripts/verify_dmg_presentation.sh` gates on mounted window
+bounds, icon size, text size, icon positions, visible items, and the presence of
+`.background/background.png`. It deliberately does not gate on Finder's
+`background picture` AppleScript getter because current macOS Finder can return
+AppleEvent `-10000` even when the mounted window and background asset are
+present; the screenshot is the review evidence for the visible background.
+
+The capture directory should include:
 
 - `dmg-build-evidence.txt` from `Scripts/create_dmg.sh --capture-dir`
-- `finder-presentation.txt` from `Scripts/create_dmg.sh --capture-dir`, followed
-  by manual Finder measurement command output before upload
+- `finder-presentation.txt` from `Scripts/verify_dmg_presentation.sh`
 - `dmg-finder-window.png`
 - command output for signing, notarization, Gatekeeper, and checksum checks
 
@@ -361,18 +378,16 @@ list only checks actually run for that release.
 
 1. Set `VERSION`, `PREVIOUS_TAG`, `CURRENT_TAG`, `RELEASE_DATE`, `CAPTURE_DIR`,
    and `DMG_PATH`.
-2. Run timestamp preflight and fix network issues before signing.
-3. Run `swift test` and `swift build -c release`.
-4. Run `./Scripts/package_app.sh release`.
-5. Run `./Scripts/sign-and-notarize.sh --app QuotaWake.app`.
-6. Run `./Scripts/create_dmg.sh --app QuotaWake.app --output "$DMG_PATH" --capture-dir "$CAPTURE_DIR"`.
-7. Run `./Scripts/sign-and-notarize.sh --app QuotaWake.app --dmg "$DMG_PATH"`.
-8. Run required signing, stapling, Gatekeeper, checksum, and Finder presentation
+2. Confirm `QUOTAWAKE_DEVELOPER_ID_APPLICATION` and either
+   `QUOTAWAKE_NOTARY_PROFILE` or App Store Connect API credentials are present,
+   directly or through ignored `.release.local.env`.
+3. Run `./Scripts/build_release_dmg.sh --capture-dir "$CAPTURE_DIR" --output "$DMG_PATH"`.
+4. Run required Finder presentation
    checks.
-9. Run the live CLI smoke for Claude and Codex.
-10. Verify reset-aware readiness evidence and provider-boundary scans.
-11. Confirm the GitHub Release tag and `.dmg` asset satisfy the manual update
+5. Run the live CLI smoke for Claude and Codex.
+6. Verify reset-aware readiness evidence and provider-boundary scans.
+7. Confirm the GitHub Release tag and `.dmg` asset satisfy the manual update
    check metadata contract.
-12. Write release notes from `git log` and `git diff --stat`.
-13. Upload only `$DMG_PATH`; include SHA-256 and verification evidence in the
+8. Write release notes from `git log` and `git diff --stat`.
+9. Upload only `$DMG_PATH`; include SHA-256 and verification evidence in the
    release body.

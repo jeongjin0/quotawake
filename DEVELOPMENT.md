@@ -266,6 +266,10 @@ export APP_STORE_CONNECT_KEY_ID="..."
 export APP_STORE_CONNECT_ISSUER_ID="..."
 ```
 
+Machine-local release defaults may be kept in ignored `.release.local.env`.
+Use it for local keychain profile aliases or signing identity names that should
+not be committed.
+
 Release flow:
 
 ```bash
@@ -273,19 +277,17 @@ set -a
 . ./version.env
 set +a
 
-swift test
-swift build -c release
-./Scripts/package_app.sh release
-./Scripts/sign-and-notarize.sh --app QuotaWake.app
-./Scripts/create_dmg.sh --app QuotaWake.app --output "dist/QuotaWake-${VERSION}.dmg" --capture-dir ".qa-captures/release-${VERSION}"
-./Scripts/sign-and-notarize.sh --app QuotaWake.app --dmg "dist/QuotaWake-${VERSION}.dmg"
+./Scripts/build_release_dmg.sh \
+  --capture-dir ".qa-captures/release-${VERSION}" \
+  --output "dist/QuotaWake-${VERSION}.dmg"
 ```
 
-The first `sign-and-notarize.sh` command is app signing only. Raw `.app`
-bundles are not submitted to `notarytool`; notarization runs only when the final
-DMG archive is passed with `--dmg`. `create_dmg.sh --capture-dir` records DMG
-build evidence only, not applied or measured Finder presentation metadata.
-Follow the mounted-DMG Finder measurement gate in `RELEASE.md` before upload.
+The wrapper runs tests, builds and packages the release app, signs the `.app`,
+creates the DMG, signs/notarizes/staples the DMG, then runs Gatekeeper,
+Finder-presentation, and checksum checks. It also preflights the timestamp
+service and notary credentials before signing. Raw `.app` bundles are not
+submitted to `notarytool`; notarization runs only when the final DMG archive is
+passed with `--dmg`.
 
 Do not hard-code personal Developer ID identities, notary credentials, private
 keys, or keychain profile names in tracked files.
