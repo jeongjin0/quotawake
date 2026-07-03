@@ -134,8 +134,13 @@ Feedback-loop guardrails around the engine:
 - Blocked/unavailable states are not permanent: once the stored state is older
   than about 15 minutes, the engine requests a re-observation so a one-time
   condition (logged out once, app-server briefly missing) self-heals.
-- Automatic quota observations are throttled to one probe per tool per
-  10 minutes; manual Observe is immediate.
+- Quota display auto-refreshes: the 60-second poll loop re-observes local
+  quota state when the stored state is older than ~55 seconds, and opening the
+  popover refreshes state older than 30 seconds. After a failed observation
+  (source unavailable or unparseable output) retries back off to once per
+  5 minutes. Readiness-driven observations inside `tick()` stay throttled to
+  one probe per tool per 10 minutes; the popover footer Reload remains an
+  immediate manual observe.
 - Skip logging is transition-based: the same gated candidate with the same
   reason logs once, not once per 60-second poll tick.
 
