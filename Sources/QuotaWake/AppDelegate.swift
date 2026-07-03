@@ -51,20 +51,6 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         model.startResetAwarePoller()
         #endif
 
-        let statusItem = NSStatusBar.system.statusItem(withLength: 44)
-        if let button = statusItem.button {
-            button.image = nil
-            button.imagePosition = .noImage
-            button.title = "QW"
-            button.alignment = .center
-            button.toolTip = "QuotaWake"
-            button.target = self
-            button.action = #selector(togglePopover(_:))
-            button.setAccessibilityLabel("QuotaWake")
-        }
-        statusItem.isVisible = true
-        self.statusItem = statusItem
-
         let popoverWindow = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 306, height: 580),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -94,6 +80,10 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         )
         self.popoverWindow = popoverWindow
 
+        DispatchQueue.main.async { [weak self] in
+            self?.installStatusItem()
+        }
+
         if !model.settings.firstRunCompleted {
             showFirstRunSetup()
         }
@@ -103,6 +93,34 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
             runNormalLaunchQA(config: normalLaunchQAConfig, model: model)
         }
         #endif
+    }
+
+    @MainActor
+    private func installStatusItem() {
+        let statusItem = NSStatusBar.system.statusItem(withLength: 24)
+        statusItem.autosaveName = "QuotaWake.VisibleStatusItem.v3"
+        if let button = statusItem.button {
+            let statusImage = NSImage(named: "QuotaWakeStatusTemplate")
+                ?? Bundle.main.url(forResource: "QuotaWakeStatusTemplate", withExtension: "png").flatMap(NSImage.init(contentsOf:))
+            if let image = statusImage {
+                image.isTemplate = true
+                image.size = NSSize(width: 21, height: 21)
+                button.image = image
+                button.imagePosition = .imageOnly
+                button.title = ""
+            } else {
+                button.image = nil
+                button.imagePosition = .noImage
+                button.title = "QW"
+            }
+            button.alignment = .center
+            button.toolTip = "QuotaWake"
+            button.target = self
+            button.action = #selector(togglePopover(_:))
+            button.setAccessibilityLabel("QuotaWake")
+        }
+        statusItem.isVisible = true
+        self.statusItem = statusItem
     }
 
     @MainActor
@@ -294,7 +312,7 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
     private func runNormalLaunchQA(config: NormalLaunchQAConfig, model: QuotaWakeAppModel) {
         showSettings()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.togglePopover(nil)
         }
 
@@ -315,6 +333,10 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
                     statusItemImageSize: statusImage?.size ?? .zero,
                     statusItemImageName: statusImage?.name() ?? "",
                     statusItemImage: statusImage,
+                    statusButtonFrame: statusButton?.frame ?? .zero,
+                    statusButtonWindowFrame: statusButton?.window?.frame ?? .zero,
+                    statusButtonIsHidden: statusButton?.isHidden ?? true,
+                    statusButtonIsEnabled: statusButton?.isEnabled ?? false,
                     popoverShown: self.popoverWindow?.isVisible ?? false,
                     popoverSize: self.popoverWindow?.contentView?.bounds.size ?? .zero,
                     settingsWindowShown: self.settingsWindow?.isVisible ?? false,
