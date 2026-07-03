@@ -51,6 +51,7 @@ QuotaWake feels like a quiet Mac utility: compact, trustworthy, and easy to scan
 
 | Level | Size | Weight | Line Height | Tracking | Usage |
 | --- | --- | --- | --- | --- | --- |
+| Hero countdown | 30pt | 600 rounded, monospaced digits | system | 0 | Popover "Next reset" countdown only |
 | Window title | 20pt | 600 | system | 0 | Settings pane title |
 | Section title | 14pt | 600 | system | 0 | Group headings |
 | Body | 13pt | 400 | system | 0 | Standard labels and values |
@@ -67,7 +68,7 @@ QuotaWake feels like a quiet Mac utility: compact, trustworthy, and easy to scan
 
 - Use dynamic type-compatible SwiftUI fonts where possible.
 - Do not scale type with window or viewport width.
-- Keep text compact and no smaller than 11pt in app UI, with one allowed exception: compact inline card metadata (e.g. quota-window footnotes) may use 10.5pt.
+- Keep text compact and no smaller than 11pt in app UI, with two allowed exceptions: compact inline card metadata and quiet captions (e.g. the gate note) may use 10.5pt, and tracked uppercase eyebrows (`NEXT RESET`, `RECENT ACTIVITY`) may use 10pt bold.
 
 ## 4. Spacing & Layout
 
@@ -86,14 +87,14 @@ All spacing derives from a 4pt base.
 
 ### Layout
 
-- Popover: fixed 306x580pt so status changes never cause resize jitter.
+- Popover: fixed 306x500pt (`PopoverMetrics.size`) so status and tab changes never cause resize jitter.
 - Settings window: 980x680pt default, 720x520pt minimum. The first-run setup window uses 720x520pt minimum.
 - Use a native sidebar-list structure for Settings, not a rounded sidebar island, nested cards, or tab-like marketing panels.
 - Rows use stable min heights so status changes do not shift the whole view.
 - Settings rows use a stable label/control column rhythm; long controls can move
   below their labels, but they must not overlap adjacent values or resize the
   window.
-- Provider quota cards use a stable compact footprint: provider header, quota progress bar, reset countdown line, and only conditional diagnostic detail.
+- The popover reads top-down as: provider tab bar (Overview plus one tab per runnable provider) at the very top, the selected tab's content, a bottom status line (gate note at the leading edge, readiness pill at the trailing edge), footer. The Overview tab holds the "Next reset" hero, compact provider summary rows, and recent activity; a provider tab holds that provider's full quota detail. The popover shows no app-name header — the tab bar is the first element.
 - The bottom menu footer is separated from provider content by a hairline divider and uses compact icon+text chips: Reload, Pause/Resume, and Settings grouped at the leading edge, Quit at the trailing edge (see Popover Menu Footer below).
 
 ### Rules
@@ -115,28 +116,41 @@ All spacing derives from a 4pt base.
 - **States**: normal, disabled, stale.
 - **Accessibility**: value text must carry the semantic status, not color alone.
 
-### Provider Quota Card
+### Popover Tab Bar
 
-- **Structure**: a single column card. Top row = provider identity mark and provider name. Below: a 5h quota-window section followed by a Weekly Limit section. Both quota-window sections use the same label/value/bar/reset-footnote rhythm so weekly is treated as a peer signal rather than a muted footer.
-- **Identity accents**: Claude `#D97757` (warm coral), Codex `#0D0D0D` (near-black). The accent appears only on the identity mark and bar fill — never as a card background wash.
-- **Variants**: per-window known / unknown. When a window has no local signal the bar renders a diagonal striped track and the 5h section shows "No local quota signal yet"; quota state refreshes automatically, so the card carries no inline action.
-- **Reset labels**: 5h and weekly reset countdowns are shown inside their own quota-window sections. Do not put an unlabeled countdown or next-due badge in the card header.
-- **Spacing**: `space3` padding, `space2`–`space3` row gaps, `space1` gaps inside compact metadata lines.
-- **Surface**: a neutral translucent white card (≈0.55 opacity for the next-due provider, ≈0.42 for others) on the glass popover shell with a hairline stroke; one card per provider, never nested colored panels.
-- **States**: identity accent stays stable so provider identity never relies on text alone.
-- **Accessibility**: provider name, 5h quota, weekly quota, reset countdowns, and status are visible text or accessible labels; the striped track is decorative and hidden from accessibility.
-- **Visibility**: the popover renders provider quota cards only for enabled tools whose CLI is detected and runnable. Missing, invalid, disabled, or broken tools are surfaced through the status pill and Settings tools pane, not as normal quota cards.
+- **Structure**: the popover's first element — a segmented row of `Overview` plus one tab per runnable provider, each icon + label (grid glyph for Overview, mini identity mark for providers). Providers appear as tabs only when enabled and runnable, so the bar scales as providers are added.
+- **Variants**: selected (near-opaque white chip, ink text, hairline stroke) and unselected (secondary ink, transparent). Selection is view state; it falls back to Overview if the selected provider stops being runnable.
+- **Rules**: the tab bar decides whose data the popover shows — Overview aggregates, a provider tab shows only that provider. Never mix providers inside a provider tab.
+- **Accessibility**: tabs are buttons with visible labels and a selected trait.
 
-### Weekly Limit Row
+### Next Reset Hero
 
-- **Structure**: a peer quota-window readout at the bottom of each provider card — "Weekly limit" label, a percent value ("62% left" / "Unknown"), the same thin accent bar treatment as the 5h row, and its own "Resets in Xd" line when known.
-- **Source**: Codex's secondary rate-limit window and Claude's `/usage` "current week" line; both are best-effort and degrade to a striped "Unknown" track when no signal is present.
-- **Rules**: the weekly bar uses the provider accent and bar height consistently with the 5h window. Vertical placement and section labels separate the two windows, not a divider, reduced opacity, or smaller geometry.
+- **Structure**: the Overview tab's signature element, directly under the tab bar. A small `NEXT RESET` eyebrow, then the earliest observed 5h reset candidate across runnable providers as a 30pt rounded semibold countdown ("45m", "Due now") with a one-line two-tone subline: provider + window label (semibold secondary ink) and "· at HH:MM" (tertiary ink).
+- **Variants**: known candidate; waiting state. With no local reset signal the hero renders "Waiting for a quota signal" (15pt semibold secondary) over a "Reload to check now" caption — no oversized glyphs or placeholder dashes.
+- **Rules**: the hero states an observed local reset candidate, never provider-verified language. It is the only element allowed the hero countdown type level; keep everything around it quiet.
+- **Accessibility**: the hero combines into one label, e.g. "Next reset in 45m, Claude · 5h window, at 18:04".
+
+### Provider Summary Row (Overview)
+
+- **Structure**: one compact tappable row per runnable provider inside a single grouped card, separated by hairlines. Each row: identity mark, provider name, a trailing "58% left · 45m" two-tone value (5h remaining + reset countdown), a small chevron, and a thin 5h quota bar underneath. Tapping the row opens that provider's tab.
+- **Identity accents**: Claude `#D97757` (warm coral), Codex `#0D0D0D` (near-black). The accent appears only on the identity mark and bar fill — never as a row background wash.
+- **Variants**: known ("58% left · 45m") / unknown ("No signal" with a striped track). Quota state refreshes automatically, so rows carry no inline action beyond navigation.
+- **Notes**: global facts stay out of rows — the active-use gate note renders once above the footer, not per row.
+- **Accessibility**: each row combines into one label that names the provider, the 5h state, and that it opens the provider detail.
+- **Visibility**: summary rows and provider tabs render only for enabled tools whose CLI is detected and runnable. Missing, invalid, disabled, or broken tools are surfaced through the status pill and Settings tools pane.
+
+### Provider Detail Tab
+
+- **Structure**: the selected provider's full readout. Provider header (identity mark, name, status dot + status text), then a provider-scoped Next Reset hero (same 30pt treatment as the overview hero, subline "5h window · at HH:MM", hidden when no reset candidate is observed), then one card holding the 5h window and Weekly Limit sections in the same label/value/bar rhythm (prominent variant: 14pt monospaced-digit values, 6pt bars; the 5h reset footnote is omitted because the hero above states it), then quiet Source / Confidence / Last run meta rows, then `RECENT ACTIVITY` filtered to this provider.
+- **Variants**: per-window known / unknown. When a window has no local signal the bar renders a diagonal striped track and the 5h section shows "No local quota signal yet".
+- **Weekly limit**: a peer quota-window readout — same accent, bar treatment, and its own "Resets in Xd" line when known. Sources: Codex's secondary rate-limit window and Claude's `/usage` "current week" line; both best-effort, degrading to a striped "Unknown" track.
+- **Reset labels**: 5h and weekly reset countdowns live inside their own quota-window sections; no unlabeled countdown badges in the header.
+- **Accessibility**: provider name, status, 5h quota, weekly quota, and reset countdowns are visible text or accessible labels; the striped track is decorative and hidden from accessibility.
 
 ### Recent Activity
 
-- **Structure**: a small `RECENT ACTIVITY` section header with an "All logs" link, followed by up to three compact log rows (status dot, `HH:MM` time, provider, status text).
-- **States**: empty ("No readiness runs yet"); populated. The "All logs" link opens the Logs settings pane.
+- **Structure**: a small `RECENT ACTIVITY` section header with an "All logs" link, followed by a translucent card (same fill/stroke as provider rows) holding up to three compact log rows (status dot, `HH:MM` time, provider, status text) separated by hairlines — the card visually marks the section as a log feed distinct from quota readouts.
+- **States**: empty ("No readiness runs yet" inside the card); populated. The "All logs" link opens the Logs settings pane. On a provider tab the rows are filtered to that provider.
 - **Accessibility**: rows combine into a single readable label; status is carried by text, not the dot color alone.
 
 ### Popover Secondary Actions

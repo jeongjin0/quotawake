@@ -2,29 +2,57 @@ import AppKit
 import QuotaWakeCore
 import SwiftUI
 
+/// Top-level popover tab: the overview or a single provider's detail.
+enum PopoverTab: Equatable {
+    case overview
+    case provider(ToolKind)
+}
+
+/// Single source of truth for the fixed popover footprint (no resize jitter).
+enum PopoverMetrics {
+    static let size = NSSize(width: 306, height: 500)
+}
+
 struct QuotaWakePopoverView: View {
     @ObservedObject var model: QuotaWakeAppModel
     @ObservedObject var presentation: PopoverPresentationState
     let openSettings: () -> Void
     var toggleReadinessPaused: () -> Void = {}
     let quit: () -> Void
+    var initialTab: PopoverTab = .overview
+
+    @State private var selectedTab: PopoverTab?
 
     var body: some View {
         let state = model.popoverState
+        let tab = effectiveTab(state)
 
         ZStack {
-            VStack(alignment: .leading, spacing: 13) {
-                PopoverHeader(state: state)
+            VStack(alignment: .leading, spacing: 11) {
+                PopoverTabBar(
+                    providers: state.providerStates,
+                    selection: Binding(
+                        get: { tab },
+                        set: { selectedTab = $0 }
+                    )
+                )
 
-                VStack(spacing: 9) {
-                    ForEach(state.providerStates, id: \.tool) { provider in
-                        ProviderQuotaCard(
+                switch tab {
+                case .overview:
+                    PopoverOverviewTab(
+                        state: state,
+                        openLogs: openSettings,
+                        selectProvider: { selectedTab = .provider($0) }
+                    )
+                case .provider(let tool):
+                    if let provider = state.providerStates.first(where: { $0.tool == tool }) {
+                        ProviderDetailTab(
                             provider: provider,
-                            activityNote: activityNote(state)
+                            activity: state.recentActivity.filter { $0.toolText == provider.displayName },
+                            openLogs: openSettings
                         )
                     }
                 }
-                .layoutPriority(1)
 
                 if let message = model.statusMessage {
                     Text(message)
@@ -34,9 +62,19 @@ struct QuotaWakePopoverView: View {
                         .truncationMode(.tail)
                 }
 
-                RecentActivitySection(items: state.recentActivity, openLogs: openSettings)
-
                 Spacer(minLength: 0)
+
+                HStack(alignment: .center, spacing: 8) {
+                    Text(activityNote(state))
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(QWTheme.popoverInkTertiary)
+                        .lineLimit(1)
+                    Spacer(minLength: 6)
+                    StatusPill(
+                        title: state.statusTone == .success ? "Watching" : state.statusTitle,
+                        tone: state.statusTone
+                    )
+                }
 
                 PopoverMenuFooter(
                     reload: model.observeLastResult,
@@ -56,7 +94,7 @@ struct QuotaWakePopoverView: View {
             }
         }
         .padding(14)
-        .frame(width: 306, height: 580)
+        .frame(width: PopoverMetrics.size.width, height: PopoverMetrics.size.height)
         .background(.ultraThinMaterial)
         .background(QWTheme.glassSurface)
         .overlay(
@@ -67,11 +105,22 @@ struct QuotaWakePopoverView: View {
         .environment(\.colorScheme, .light)
     }
 
-    /// The trailing note on each card's 5h summary line, driven by the active-use gate.
+    /// The requested tab, falling back to the overview when the provider is not runnable.
+    private func effectiveTab(_ state: PopoverUIState) -> PopoverTab {
+        let requested = selectedTab ?? initialTab
+        if case .provider(let tool) = requested,
+           !state.providerStates.contains(where: { $0.tool == tool }) {
+            return .overview
+        }
+        return requested
+    }
+
+    /// One global gate note in the bottom status line, driven by the active-use gate.
+    /// Kept short so it never collides with the readiness pill beside it.
     private func activityNote(_ state: PopoverUIState) -> String {
         state.activityText.hasSuffix("on")
-            ? "sends only while Mac is active"
-            : "sends in the background"
+            ? "Sends while Mac is active"
+            : "Sends in the background"
     }
 }
 
@@ -89,24 +138,76 @@ final class PopoverPresentationState: ObservableObject {
     }
 }
 
-struct PopoverHeader: View {
+/// The overview's signature answer: how long until the next observed reset candidate.
+struct NextResetHero: View {
     let state: PopoverUIState
 
     var body: some View {
-        HStack(spacing: 8) {
-            Text("QuotaWake")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(QWTheme.popoverInk)
-            Spacer(minLength: 8)
-            StatusPill(
-                title: state.statusTone == .success ? "Watching" : state.statusTitle,
-                tone: state.statusTone
-            )
+        VStack(alignment: .leading, spacing: 3) {
+            Text("NEXT RESET")
+                .font(.system(size: 10, weight: .bold))
+                .tracking(0.6)
+                .foregroundStyle(QWTheme.popoverInkTertiary)
+
+            if let countdown = state.nextResetCountdownText {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(countdown)
+                        .font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(QWTheme.popoverInk)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    subline
+                    Spacer(minLength: 0)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Waiting for a quota signal")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(QWTheme.popoverInkSecondary)
+                    Text("Reload to check now")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(QWTheme.popoverInkTertiary)
+                }
+                .padding(.vertical, 4)
+            }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityText)
+    }
+
+    /// "Claude · 5h window · at 18:04" rendered as one quiet two-tone line.
+    /// The clock is dropped for "Due now": a wall-clock time in the past only confuses.
+    private var subline: some View {
+        (
+            Text(state.nextResetProviderText ?? "")
+                .fontWeight(.semibold)
+                .foregroundColor(QWTheme.popoverInkSecondary)
+            + Text(sublineClockText.map { " · at \($0)" } ?? "")
+                .foregroundColor(QWTheme.popoverInkTertiary)
+        )
+        .font(.system(size: 11))
+        .lineLimit(1)
+        .truncationMode(.tail)
+    }
+
+    private var sublineClockText: String? {
+        state.nextResetCountdownText == "Due now" ? nil : state.nextResetClockText
+    }
+
+    private var accessibilityText: String {
+        guard let countdown = state.nextResetCountdownText else {
+            return "Next reset: waiting for a local quota signal"
+        }
+        let detail = [state.nextResetProviderText, sublineClockText.map { "at \($0)" }]
+            .compactMap { $0 }
+            .joined(separator: ", ")
+        return countdown == "Due now"
+            ? "Next reset due now, \(detail)"
+            : "Next reset in \(countdown), \(detail)"
     }
 }
 
-/// Header readiness pill: tinted capsule with a leading dot (v2 "Watching").
+/// Readiness pill in the bottom status line: tinted capsule with a leading dot ("Watching").
 struct StatusPill: View {
     let title: String
     let tone: UIStatusTone

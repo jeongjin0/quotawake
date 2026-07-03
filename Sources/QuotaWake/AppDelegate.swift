@@ -52,7 +52,7 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         #endif
 
         let popoverWindow = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 306, height: 580),
+            contentRect: NSRect(origin: .zero, size: PopoverMetrics.size),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -186,7 +186,7 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     private func positionPopoverWindow(_ window: NSWindow, below button: NSStatusBarButton) {
-        let size = NSSize(width: 306, height: 580)
+        let size = PopoverMetrics.size
         window.setContentSize(size)
 
         guard let buttonWindow = button.window, let screen = buttonWindow.screen ?? NSScreen.main else {
@@ -377,8 +377,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
             case "missing-cli":
                 try UIQARenderer.render(
                     QuotaWakePopoverView(model: model, presentation: PopoverPresentationState(), openSettings: {}, quit: {})
-                        .frame(width: 306, height: 580),
-                    size: NSSize(width: 306, height: 580),
+                        .frame(width: PopoverMetrics.size.width, height: PopoverMetrics.size.height),
+                    size: PopoverMetrics.size,
                     to: config.evidenceDirectory.appendingPathComponent("missing-cli.png")
                 )
             case "broken-codex":
@@ -397,8 +397,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
                 )
                 try UIQARenderer.render(
                     QuotaWakePopoverView(model: brokenModel, presentation: PopoverPresentationState(), openSettings: {}, quit: {})
-                        .frame(width: 306, height: 580),
-                    size: NSSize(width: 306, height: 580),
+                        .frame(width: PopoverMetrics.size.width, height: PopoverMetrics.size.height),
+                    size: PopoverMetrics.size,
                     to: config.evidenceDirectory.appendingPathComponent("broken-codex.png")
                 )
                 brokenModel.selectedPane = .tools
@@ -476,8 +476,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
                 )
                 try UIQARenderer.render(
                     QuotaWakePopoverView(model: runModel, presentation: PopoverPresentationState(), openSettings: {}, quit: {})
-                        .frame(width: 306, height: 580),
-                    size: NSSize(width: 306, height: 580),
+                        .frame(width: PopoverMetrics.size.width, height: PopoverMetrics.size.height),
+                    size: PopoverMetrics.size,
                     to: config.evidenceDirectory.appendingPathComponent("run-now.png")
                 )
             case "live-run-now":
@@ -497,8 +497,8 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
                 )
                 try UIQARenderer.render(
                     QuotaWakePopoverView(model: runModel, presentation: PopoverPresentationState(), openSettings: {}, quit: {})
-                        .frame(width: 306, height: 580),
-                    size: NSSize(width: 306, height: 580),
+                        .frame(width: PopoverMetrics.size.width, height: PopoverMetrics.size.height),
+                    size: PopoverMetrics.size,
                     to: config.evidenceDirectory.appendingPathComponent("live-run-now.png")
                 )
             case "tool-toggle":
@@ -538,11 +538,9 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
                     commands: result.commands,
                     updateURLOpener: updateURLOpener
                 )
-                try UIQARenderer.render(
-                    QuotaWakePopoverView(model: readinessModel, presentation: PopoverPresentationState(), openSettings: {}, quit: {})
-                        .frame(width: 306, height: 580),
-                    size: NSSize(width: 306, height: 580),
-                    to: config.evidenceDirectory.appendingPathComponent("popover.png")
+                try renderPopoverTabs(
+                    model: readinessModel,
+                    evidenceDirectory: config.evidenceDirectory
                 )
                 readinessModel.selectedPane = .readiness
                 try UIQARenderer.render(
@@ -587,11 +585,9 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
                     colorScheme: .dark
                 )
             case "popover-settings":
-                try UIQARenderer.render(
-                    QuotaWakePopoverView(model: model, presentation: PopoverPresentationState(), openSettings: {}, quit: {})
-                        .frame(width: 306, height: 580),
-                    size: NSSize(width: 306, height: 580),
-                    to: config.evidenceDirectory.appendingPathComponent("popover.png")
+                try renderPopoverTabs(
+                    model: model,
+                    evidenceDirectory: config.evidenceDirectory
                 )
                 for pane in SettingsPaneID.allCases {
                     model.selectedPane = pane
@@ -611,6 +607,32 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         } catch {
             FileHandle.standardError.write(Data("UI QA failed: \(error)\n".utf8))
             exit(1)
+        }
+    }
+
+    /// Renders `popover.png` (overview) plus `popover-<tool>.png` for each runnable provider tab.
+    @MainActor
+    private func renderPopoverTabs(
+        model: QuotaWakeAppModel,
+        evidenceDirectory: URL
+    ) throws {
+        var tabs: [(PopoverTab, String)] = [(.overview, "popover.png")]
+        tabs += model.popoverState.providerStates.map {
+            (.provider($0.tool), "popover-\($0.tool.rawValue).png")
+        }
+        for (tab, fileName) in tabs {
+            try UIQARenderer.render(
+                QuotaWakePopoverView(
+                    model: model,
+                    presentation: PopoverPresentationState(),
+                    openSettings: {},
+                    quit: {},
+                    initialTab: tab
+                )
+                .frame(width: PopoverMetrics.size.width, height: PopoverMetrics.size.height),
+                size: PopoverMetrics.size,
+                to: evidenceDirectory.appendingPathComponent(fileName)
+            )
         }
     }
 

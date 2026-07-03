@@ -2,55 +2,346 @@ import AppKit
 import QuotaWakeCore
 import SwiftUI
 
-struct ProviderQuotaCard: View {
-    let provider: ProviderReadinessUIState
-    var activityNote: String = ""
+/// Segmented provider tab bar: Overview plus one tab per runnable provider.
+struct PopoverTabBar: View {
+    let providers: [ProviderReadinessUIState]
+    @Binding var selection: PopoverTab
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                ProviderIdentityMark(provider: provider)
-                Text(provider.displayName)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(QWTheme.popoverInk)
-                    .lineLimit(1)
-                Spacer(minLength: 6)
+        HStack(spacing: 4) {
+            tabItem(
+                title: "Overview",
+                isSelected: selection == .overview,
+                action: { selection = .overview }
+            ) {
+                Image(systemName: "square.grid.2x2")
+                    .font(.system(size: 10, weight: .semibold))
             }
 
-            QuotaWindowSection(
-                title: "5h window",
-                valueText: provider.fiveHourValueText,
-                valueKnown: provider.hasFiveHourSignal,
-                fraction: provider.remainingFraction,
-                fill: provider.accent,
-                known: provider.hasFiveHourSignal,
-                footnote: provider.fiveHourResetFootnote,
-                detailNote: provider.hasFiveHourSignal ? activityNote : "No local quota signal yet"
-            )
-
-            QuotaWindowSection(
-                title: "Weekly limit",
-                valueText: provider.weeklyValueText,
-                valueKnown: provider.hasWeeklyData,
-                fraction: provider.weeklyRemainingFraction,
-                fill: provider.accent,
-                known: provider.hasWeeklyData,
-                footnote: provider.hasWeeklyData && provider.weeklyResetCountdownText != "Unknown"
-                    ? "Resets in \(provider.weeklyResetCountdownText)"
-                    : nil
-            )
+            ForEach(providers, id: \.tool) { provider in
+                tabItem(
+                    title: provider.displayName,
+                    isSelected: selection == .provider(provider.tool),
+                    action: { selection = .provider(provider.tool) }
+                ) {
+                    ProviderIdentityMark(provider: provider, diameter: 15, glyphSize: 9)
+                }
+            }
         }
-        .padding(13)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(QWTheme.cardFill.opacity(0.28))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Provider tabs")
+    }
+
+    private func tabItem(
+        title: String,
+        isSelected: Bool,
+        action: @escaping () -> Void,
+        @ViewBuilder icon: () -> some View
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                icon()
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isSelected ? QWTheme.popoverInk : QWTheme.popoverInkSecondary)
+            .frame(maxWidth: .infinity, minHeight: 26)
+            .background(
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(isSelected ? QWTheme.cardFill.opacity(0.85) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(isSelected ? QWTheme.cardStroke : Color.clear, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+}
+
+/// Overview tab: hero countdown, one compact row per provider, recent activity.
+struct PopoverOverviewTab: View {
+    let state: PopoverUIState
+    let openLogs: () -> Void
+    let selectProvider: (ToolKind) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            NextResetHero(state: state)
+
+            if state.providerStates.isEmpty {
+                Text("No runnable tools. Check CLI paths in Settings.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(QWTheme.popoverInkSecondary)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(state.providerStates.enumerated()), id: \.element.tool) { index, provider in
+                        if index > 0 {
+                            Rectangle()
+                                .fill(QWTheme.popoverHairline)
+                                .frame(height: 1)
+                        }
+                        ProviderSummaryRow(provider: provider) {
+                            selectProvider(provider.tool)
+                        }
+                    }
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(QWTheme.cardFill.opacity(0.4))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(QWTheme.cardStroke, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+
+            RecentActivitySection(items: state.recentActivity, openLogs: openLogs)
+        }
+    }
+}
+
+/// One compact provider line on the overview; tapping opens the provider tab.
+struct ProviderSummaryRow: View {
+    let provider: ProviderReadinessUIState
+    let open: () -> Void
+
+    var body: some View {
+        Button(action: open) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    ProviderIdentityMark(provider: provider, diameter: 22, glyphSize: 13)
+                    Text(provider.displayName)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(QWTheme.popoverInk)
+                        .lineLimit(1)
+                    Spacer(minLength: 6)
+                    summaryValue
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(QWTheme.popoverInkTertiary)
+                }
+                QuotaBar(
+                    fraction: provider.remainingFraction,
+                    fill: provider.accent,
+                    known: provider.hasFiveHourSignal,
+                    height: 4
+                )
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(provider.displayName): \(accessibilitySummary). Opens \(provider.displayName) detail.")
+    }
+
+    /// "58% left · 45m" — 5h remaining plus its reset countdown at a glance.
+    private var summaryValue: some View {
+        (
+            Text(provider.hasFiveHourSignal ? provider.fiveHourValueText : "No signal")
+                .fontWeight(.semibold)
+                .foregroundColor(provider.hasFiveHourSignal ? QWTheme.popoverInk : QWTheme.popoverInkSecondary)
+            + Text(summaryCountdownSuffix)
+                .foregroundColor(QWTheme.popoverInkSecondary)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(QWTheme.cardStroke, lineWidth: 1)
+        .font(.system(size: 11.5))
+        .lineLimit(1)
+    }
+
+    private var summaryCountdownSuffix: String {
+        switch provider.resetCountdownText {
+        case "Unknown", "Not used":
+            return ""
+        case "Due now":
+            return " · due now"
+        default:
+            return " · \(provider.resetCountdownText)"
+        }
+    }
+
+    private var accessibilitySummary: String {
+        provider.hasFiveHourSignal
+            ? "\(provider.fiveHourValueText)\(summaryCountdownSuffix)"
+            : "No local quota signal yet"
+    }
+}
+
+/// Provider tab: full quota detail for the selected provider only.
+struct ProviderDetailTab: View {
+    let provider: ProviderReadinessUIState
+    let activity: [LogRowUIState]
+    let openLogs: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(spacing: 9) {
+                ProviderIdentityMark(provider: provider, diameter: 28, glyphSize: 17)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(provider.displayName)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(QWTheme.popoverInk)
+                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(provider.statusTone.qwPillColor)
+                            .frame(width: 5, height: 5)
+                        Text(provider.statusText)
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(QWTheme.popoverInkSecondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .accessibilityElement(children: .combine)
+
+            ProviderNextResetHero(provider: provider)
+
+            VStack(alignment: .leading, spacing: 11) {
+                // The reset footnote is omitted here: the hero above already
+                // states this provider's 5h reset countdown at full size.
+                QuotaWindowSection(
+                    title: "5h window",
+                    valueText: provider.fiveHourValueText,
+                    valueKnown: provider.hasFiveHourSignal,
+                    fraction: provider.remainingFraction,
+                    fill: provider.accent,
+                    known: provider.hasFiveHourSignal,
+                    detailNote: provider.hasFiveHourSignal ? nil : "No local quota signal yet",
+                    prominent: true
+                )
+
+                QuotaWindowSection(
+                    title: "Weekly limit",
+                    valueText: provider.weeklyValueText,
+                    valueKnown: provider.hasWeeklyData,
+                    fraction: provider.weeklyRemainingFraction,
+                    fill: provider.accent,
+                    known: provider.hasWeeklyData,
+                    footnote: provider.hasWeeklyData && provider.weeklyResetCountdownText != "Unknown"
+                        ? "Resets in \(provider.weeklyResetCountdownText)"
+                        : nil,
+                    prominent: true
+                )
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(QWTheme.cardFill.opacity(0.4))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(QWTheme.cardStroke, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            VStack(alignment: .leading, spacing: 5) {
+                ProviderMetaRow(label: "Source", value: provider.sourceText)
+                ProviderMetaRow(label: "Confidence", value: provider.confidenceText)
+                ProviderMetaRow(label: "Last run", value: provider.lastReadinessText)
+            }
+
+            RecentActivitySection(items: activity, openLogs: openLogs)
+                .padding(.top, 5)
+        }
+    }
+}
+
+/// Provider-scoped variant of the overview hero: this provider's 5h reset countdown.
+/// Hidden when the provider has no observed reset candidate — the striped card
+/// below already explains the missing signal.
+struct ProviderNextResetHero: View {
+    let provider: ProviderReadinessUIState
+
+    var body: some View {
+        if let countdown = countdownText {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("NEXT RESET")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundStyle(QWTheme.popoverInkTertiary)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(countdown)
+                        .font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(QWTheme.popoverInk)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    subline
+                    Spacer(minLength: 0)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(accessibilityText(countdown))
+        }
+    }
+
+    private var countdownText: String? {
+        switch provider.resetCountdownText {
+        case "Unknown", "Not used":
+            return nil
+        default:
+            return provider.resetCountdownText
+        }
+    }
+
+    /// "5h window · at 18:04"; the clock is dropped for "Due now".
+    private var subline: some View {
+        (
+            Text("5h window")
+                .fontWeight(.semibold)
+                .foregroundColor(QWTheme.popoverInkSecondary)
+            + Text(clockText.map { " · at \($0)" } ?? "")
+                .foregroundColor(QWTheme.popoverInkTertiary)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .font(.system(size: 11))
+        .lineLimit(1)
+        .truncationMode(.tail)
+    }
+
+    /// Trailing "HH:MM" of the core's "MM/DD HH:MM" reset text.
+    private var clockText: String? {
+        guard provider.resetCountdownText != "Due now",
+              let time = provider.nextResetText.split(separator: " ").last,
+              time.contains(":")
+        else {
+            return nil
+        }
+        return String(time)
+    }
+
+    private func accessibilityText(_ countdown: String) -> String {
+        let detail = ["5h window", clockText.map { "at \($0)" }].compactMap { $0 }.joined(separator: ", ")
+        return countdown == "Due now"
+            ? "Next reset due now, \(detail)"
+            : "Next reset in \(countdown), \(detail)"
+    }
+}
+
+/// Quiet label/value line for provider diagnostics (source, confidence, last run).
+struct ProviderMetaRow: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(QWTheme.popoverInkTertiary)
+                .frame(width: 72, alignment: .leading)
+            Text(value)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(QWTheme.popoverInkSecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
         .accessibilityElement(children: .combine)
     }
 }
@@ -65,6 +356,8 @@ struct QuotaWindowSection: View {
     let known: Bool
     var footnote: String?
     var detailNote: String?
+    /// Provider-tab sections read larger: bigger value, taller bar.
+    var prominent = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -74,11 +367,11 @@ struct QuotaWindowSection: View {
                     .foregroundStyle(QWTheme.popoverInkSecondary)
                 Spacer(minLength: 8)
                 Text(valueText)
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(.system(size: prominent ? 14 : 11.5, weight: .semibold).monospacedDigit())
                     .foregroundStyle(valueKnown ? QWTheme.popoverInk : QWTheme.popoverInkSecondary)
                     .lineLimit(1)
             }
-            QuotaBar(fraction: fraction, fill: fill, known: known)
+            QuotaBar(fraction: fraction, fill: fill, known: known, height: prominent ? 6 : 5)
             if footnote != nil || detailNote != nil {
                 detailText
             }
@@ -98,18 +391,18 @@ struct QuotaWindowSection: View {
                 + Text(" · \(detailNote)")
                     .foregroundColor(QWTheme.popoverInkTertiary)
             )
-            .font(.system(size: 10.5, weight: .medium))
+            .font(.system(size: 11, weight: .medium))
             .lineLimit(1)
             .truncationMode(.tail)
         } else if let footnote {
             Text(footnote)
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(QWTheme.popoverInkTertiary)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(QWTheme.popoverInkSecondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
         } else if let detailNote {
             Text(detailNote)
-                .font(.system(size: 10.5, weight: .medium))
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(QWTheme.popoverInkTertiary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -169,7 +462,7 @@ struct StripedTrack: View {
                 path.addLine(to: CGPoint(x: x + size.height, y: 0))
                 x += spacing
             }
-            context.stroke(path, with: .color(Color.black.opacity(0.16)), lineWidth: 1.5)
+            context.stroke(path, with: .color(Color.black.opacity(0.12)), lineWidth: 1.5)
         }
         .accessibilityHidden(true)
     }
@@ -177,6 +470,8 @@ struct StripedTrack: View {
 
 struct ProviderIdentityMark: View {
     let provider: ProviderReadinessUIState
+    var diameter: CGFloat = 26
+    var glyphSize: CGFloat = 16
 
     var body: some View {
         ZStack {
@@ -186,15 +481,15 @@ struct ProviderIdentityMark: View {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 18, height: 18)
+                    .frame(width: glyphSize, height: glyphSize)
                     .accessibilityHidden(true)
             } else {
                 Text(provider.monogram)
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.system(size: glyphSize * 0.7, weight: .bold))
                     .foregroundStyle(.white)
             }
         }
-        .frame(width: 30, height: 30)
+        .frame(width: diameter, height: diameter)
         .accessibilityLabel("\(provider.displayName) identity")
     }
 }
@@ -257,17 +552,38 @@ struct RecentActivitySection: View {
                 .buttonStyle(.plain)
             }
 
-            if items.isEmpty {
-                Text("No readiness runs yet")
-                    .font(.system(size: 11))
-                    .foregroundStyle(QWTheme.popoverInkSecondary)
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(Array(items.enumerated()), id: \.offset) { _, row in
-                        ActivityRow(row: row)
+            Group {
+                if items.isEmpty {
+                    Text("No readiness runs yet")
+                        .font(.system(size: 11))
+                        .foregroundStyle(QWTheme.popoverInkSecondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(items.enumerated()), id: \.offset) { index, row in
+                            if index > 0 {
+                                Rectangle()
+                                    .fill(QWTheme.popoverHairline)
+                                    .frame(height: 1)
+                            }
+                            ActivityRow(row: row)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                        }
                     }
                 }
             }
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(QWTheme.cardFill.opacity(0.4))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(QWTheme.cardStroke, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 10))
         }
     }
 }
