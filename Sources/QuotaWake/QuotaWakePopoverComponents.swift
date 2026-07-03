@@ -478,17 +478,38 @@ struct RecentActivitySection: View {
                 .buttonStyle(.plain)
             }
 
-            if items.isEmpty {
-                Text("No readiness runs yet")
-                    .font(.system(size: 11))
-                    .foregroundStyle(QWTheme.popoverInkSecondary)
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(Array(items.enumerated()), id: \.offset) { _, row in
-                        ActivityRow(row: row)
+            Group {
+                if items.isEmpty {
+                    Text("No readiness runs yet")
+                        .font(.system(size: 11))
+                        .foregroundStyle(QWTheme.popoverInkSecondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(items.enumerated()), id: \.offset) { index, row in
+                            if index > 0 {
+                                Rectangle()
+                                    .fill(QWTheme.popoverHairline)
+                                    .frame(height: 1)
+                            }
+                            ActivityRow(row: row)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                        }
                     }
                 }
             }
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(QWTheme.cardFill.opacity(0.4))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(QWTheme.cardStroke, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 10))
         }
     }
 }

@@ -29,8 +29,6 @@ struct QuotaWakePopoverView: View {
 
         ZStack {
             VStack(alignment: .leading, spacing: 11) {
-                PopoverHeader(state: state)
-
                 PopoverTabBar(
                     providers: state.providerStates,
                     selection: Binding(
@@ -66,9 +64,17 @@ struct QuotaWakePopoverView: View {
 
                 Spacer(minLength: 0)
 
-                Text(activityNote(state))
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(QWTheme.popoverInkTertiary)
+                HStack(alignment: .center, spacing: 8) {
+                    Text(activityNote(state))
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(QWTheme.popoverInkTertiary)
+                        .lineLimit(1)
+                    Spacer(minLength: 6)
+                    StatusPill(
+                        title: state.statusTone == .success ? "Watching" : state.statusTitle,
+                        tone: state.statusTone
+                    )
+                }
 
                 PopoverMenuFooter(
                     reload: model.observeLastResult,
@@ -109,10 +115,11 @@ struct QuotaWakePopoverView: View {
         return requested
     }
 
-    /// One global gate note above the footer, driven by the active-use gate.
+    /// One global gate note in the bottom status line, driven by the active-use gate.
+    /// Kept short so it never collides with the readiness pill beside it.
     private func activityNote(_ state: PopoverUIState) -> String {
         state.activityText.hasSuffix("on")
-            ? "Sends only while your Mac is active"
+            ? "Sends while Mac is active"
             : "Sends in the background"
     }
 }
@@ -128,23 +135,6 @@ final class PopoverPresentationState: ObservableObject {
 
     func reset() {
         isClosing = false
-    }
-}
-
-struct PopoverHeader: View {
-    let state: PopoverUIState
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text("QuotaWake")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(QWTheme.popoverInkSecondary)
-            Spacer(minLength: 8)
-            StatusPill(
-                title: state.statusTone == .success ? "Watching" : state.statusTitle,
-                tone: state.statusTone
-            )
-        }
     }
 }
 
@@ -217,7 +207,7 @@ struct NextResetHero: View {
     }
 }
 
-/// Header readiness pill: tinted capsule with a leading dot (v2 "Watching").
+/// Readiness pill in the bottom status line: tinted capsule with a leading dot ("Watching").
 struct StatusPill: View {
     let title: String
     let tone: UIStatusTone

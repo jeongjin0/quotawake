@@ -94,7 +94,7 @@ All spacing derives from a 4pt base.
 - Settings rows use a stable label/control column rhythm; long controls can move
   below their labels, but they must not overlap adjacent values or resize the
   window.
-- The popover reads top-down as: quiet header (13pt app name + status pill), provider tab bar (Overview plus one tab per runnable provider), the selected tab's content, one global gate note, footer. The Overview tab holds the "Next reset" hero, compact provider summary rows, and recent activity; a provider tab holds that provider's full quota detail.
+- The popover reads top-down as: provider tab bar (Overview plus one tab per runnable provider) at the very top, the selected tab's content, a bottom status line (gate note at the leading edge, readiness pill at the trailing edge), footer. The Overview tab holds the "Next reset" hero, compact provider summary rows, and recent activity; a provider tab holds that provider's full quota detail. The popover shows no app-name header — the tab bar is the first element.
 - The bottom menu footer is separated from provider content by a hairline divider and uses compact icon+text chips: Reload, Pause/Resume, and Settings grouped at the leading edge, Quit at the trailing edge (see Popover Menu Footer below).
 
 ### Rules
@@ -118,7 +118,7 @@ All spacing derives from a 4pt base.
 
 ### Popover Tab Bar
 
-- **Structure**: a segmented row under the header — `Overview` plus one tab per runnable provider, each icon + label (grid glyph for Overview, mini identity mark for providers). Providers appear as tabs only when enabled and runnable, so the bar scales as providers are added.
+- **Structure**: the popover's first element — a segmented row of `Overview` plus one tab per runnable provider, each icon + label (grid glyph for Overview, mini identity mark for providers). Providers appear as tabs only when enabled and runnable, so the bar scales as providers are added.
 - **Variants**: selected (near-opaque white chip, ink text, hairline stroke) and unselected (secondary ink, transparent). Selection is view state; it falls back to Overview if the selected provider stops being runnable.
 - **Rules**: the tab bar decides whose data the popover shows — Overview aggregates, a provider tab shows only that provider. Never mix providers inside a provider tab.
 - **Accessibility**: tabs are buttons with visible labels and a selected trait.
@@ -149,8 +149,8 @@ All spacing derives from a 4pt base.
 
 ### Recent Activity
 
-- **Structure**: a small `RECENT ACTIVITY` section header with an "All logs" link, followed by up to three compact log rows (status dot, `HH:MM` time, provider, status text).
-- **States**: empty ("No readiness runs yet"); populated. The "All logs" link opens the Logs settings pane.
+- **Structure**: a small `RECENT ACTIVITY` section header with an "All logs" link, followed by a translucent card (same fill/stroke as provider rows) holding up to three compact log rows (status dot, `HH:MM` time, provider, status text) separated by hairlines — the card visually marks the section as a log feed distinct from quota readouts.
+- **States**: empty ("No readiness runs yet" inside the card); populated. The "All logs" link opens the Logs settings pane. On a provider tab the rows are filtered to that provider.
 - **Accessibility**: rows combine into a single readable label; status is carried by text, not the dot color alone.
 
 ### Popover Secondary Actions
