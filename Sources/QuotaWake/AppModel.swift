@@ -289,12 +289,14 @@ final class QuotaWakeAppModel: ObservableObject {
 
     // Silent background refresh of the displayed quota state (popover open):
     // no isRunning/statusMessage churn, and only tools whose stored state is
-    // older than maxAgeSeconds are re-observed.
+    // older than maxAgeSeconds are re-observed. Failed observations retry on
+    // the same cadence here instead of the background failure backoff, so an
+    // unlucky probe heals on the next open without a manual Reload.
     func observeQuotaIfStale(maxAgeSeconds: TimeInterval = 30) {
         let poller = self.poller
         Task {
             await Self.runBlocking {
-                try? poller.observeIfStale(maxAgeSeconds: maxAgeSeconds)
+                try? poller.observeIfStale(maxAgeSeconds: maxAgeSeconds, failureRetrySeconds: maxAgeSeconds)
             }
             self.refresh()
         }

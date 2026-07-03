@@ -38,8 +38,14 @@ build/QA commands live in `DEVELOPMENT.md`.
         observations). Local quota read only — never sends a provider message —
         so it runs even when background readiness is off or paused; gated only
         on first-run completion. Opening the popover triggers the same path
-        with a 30-second threshold. Its log entries dedupe on outcome only, so
-        a moving usage percent does not append a row per pass.
+        with a 30-second threshold and a matching failure-retry override, so a
+        failed probe heals on the next open instead of waiting out the backoff.
+        Its log entries dedupe on outcome only, so a moving usage percent does
+        not append a row per pass. A signal-less result (failed/blocked probe,
+        or a send whose output carries no quota fields) keeps its fresh
+        classification/summary/observedAt but carries the previous
+        observation's display fields (reset countdown, percentages) forward,
+        so the popover never blanks to Unknown while data is merely stale.
 ```
 
 ## Decision engine

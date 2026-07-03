@@ -217,7 +217,10 @@ public final class QuotaReadinessPoller {
     // launchAtLoginEnabled or readiness.paused — observation is a local quota
     // read and never sends a provider message, and the displayed quota should
     // stay fresh even when readiness automation is off.
-    public func observeIfStale(maxAgeSeconds: TimeInterval) throws {
+    // failureRetrySeconds overrides the failed-observation backoff for
+    // user-intent moments (popover open), where a retry is bounded by how
+    // often the user looks rather than by the background poll loop.
+    public func observeIfStale(maxAgeSeconds: TimeInterval, failureRetrySeconds: TimeInterval? = nil) throws {
         guard beginExclusiveWork() else {
             return
         }
@@ -235,7 +238,7 @@ public final class QuotaReadinessPoller {
             do {
                 if let state = (try? quotaStateStore.load(tool: command.tool)) ?? nil {
                     let threshold = isFailedObservation(state.classification)
-                        ? failureRetryIntervalSeconds
+                        ? (failureRetrySeconds ?? failureRetryIntervalSeconds)
                         : maxAgeSeconds
                     if currentTime.timeIntervalSince(state.observedAt) < threshold {
                         continue
@@ -357,15 +360,17 @@ public final class QuotaReadinessPoller {
             timedOut: entry.timedOut,
             observedAt: entry.endedAt
         )
-        try quotaStateStore.save(mergedPostRunState(parsed: state))
+        try quotaStateStore.save(mergedDisplayState(parsed: state))
     }
 
-    // A readiness send's output ("Hi!") usually carries no quota signal, so
-    // the parsed state would clobber the richer observed window shown in the
-    // popover. Keep the fresh classification/summary/observedAt but carry the
-    // previous observation's quota display fields forward. When the run output
-    // did contain quota signals (reset time, percentages), it wins as-is.
-    private func mergedPostRunState(parsed: QuotaWindowState) -> QuotaWindowState {
+    // A signal-less result — a readiness send's "Hi!" output, or a failed or
+    // blocked observation probe — would clobber the richer observed window
+    // shown in the popover, blanking the reset countdown until the next
+    // successful probe. Keep the fresh classification/summary/observedAt but
+    // carry the previous observation's quota display fields forward. When the
+    // result did contain quota signals (reset time, percentages), it wins
+    // as-is.
+    private func mergedDisplayState(parsed: QuotaWindowState) -> QuotaWindowState {
         guard parsed.resetAt == nil,
               parsed.usedPercent == nil,
               parsed.weeklyUsedPercent == nil,
@@ -417,7 +422,7 @@ public final class QuotaReadinessPoller {
         }
 
         let state = observer.observe(observedAt: startedAt)
-        try quotaStateStore.save(state)
+        try quotaStateStore.save(mergedDisplayState(parsed: state))
         let endedAt = now()
         try appendObservationIfChanged(observationLogEntry(
             command: command,
