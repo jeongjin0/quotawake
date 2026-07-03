@@ -246,6 +246,7 @@ struct ProviderDetailTab: View {
             }
 
             RecentActivitySection(items: activity, openLogs: openLogs)
+                .padding(.top, 5)
         }
     }
 }
