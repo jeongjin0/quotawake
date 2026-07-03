@@ -257,18 +257,19 @@ struct ProviderDetailTab: View {
 }
 
 /// Provider-scoped variant of the overview hero: this provider's 5h reset countdown.
-/// Hidden when the provider has no observed reset candidate — the striped card
-/// below already explains the missing signal.
+/// With no observed reset candidate it keeps its place and shows the same
+/// waiting empty state as the overview hero, so the tab never opens with a
+/// silently missing section.
 struct ProviderNextResetHero: View {
     let provider: ProviderReadinessUIState
 
     var body: some View {
-        if let countdown = countdownText {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("NEXT RESET")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(0.6)
-                    .foregroundStyle(QWTheme.popoverInkTertiary)
+        VStack(alignment: .leading, spacing: 3) {
+            Text("NEXT RESET")
+                .font(.system(size: 10, weight: .bold))
+                .tracking(0.6)
+                .foregroundStyle(QWTheme.popoverInkTertiary)
+            if let countdown = countdownText {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     // Fixed size: the countdown must render identically on every
                     // tab; when space runs out the subline truncates instead.
@@ -281,10 +282,20 @@ struct ProviderNextResetHero: View {
                     subline
                     Spacer(minLength: 0)
                 }
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Waiting for a quota signal")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(QWTheme.popoverInkSecondary)
+                    Text("Reload to check now")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(QWTheme.popoverInkTertiary)
+                }
+                .padding(.vertical, 4)
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(accessibilityText(countdown))
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityText(countdownText))
     }
 
     private var countdownText: String? {
@@ -321,7 +332,10 @@ struct ProviderNextResetHero: View {
         return String(time)
     }
 
-    private func accessibilityText(_ countdown: String) -> String {
+    private func accessibilityText(_ countdown: String?) -> String {
+        guard let countdown else {
+            return "Next reset: waiting for a local quota signal"
+        }
         let detail = ["5h window", clockText.map { "at \($0)" }].compactMap { $0 }.joined(separator: ", ")
         return countdown == "Due now"
             ? "Next reset due now, \(detail)"
