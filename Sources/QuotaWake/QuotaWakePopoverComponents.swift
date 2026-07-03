@@ -180,6 +180,10 @@ struct ProviderDetailTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
+            // Hero leads, mirroring the Overview reading order: the reset
+            // countdown is the answer, the provider header is context.
+            ProviderNextResetHero(provider: provider)
+
             HStack(spacing: 9) {
                 ProviderIdentityMark(provider: provider, diameter: 28, glyphSize: 17)
                 VStack(alignment: .leading, spacing: 1) {
@@ -200,8 +204,6 @@ struct ProviderDetailTab: View {
                 Spacer(minLength: 0)
             }
             .accessibilityElement(children: .combine)
-
-            ProviderNextResetHero(provider: provider)
 
             VStack(alignment: .leading, spacing: 11) {
                 // The reset footnote is omitted here: the hero above already
