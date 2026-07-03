@@ -8,9 +8,21 @@ enum PopoverTab: Equatable {
     case provider(ToolKind)
 }
 
-/// Single source of truth for the fixed popover footprint (no resize jitter).
+/// Popover footprint: the width is fixed, the height grows to fit content (the
+/// window resizes to `onContentHeightChange`). `size.height` is only the initial
+/// fallback / QA canvas used before the first measurement.
 enum PopoverMetrics {
     static let size = NSSize(width: 306, height: 500)
+}
+
+/// SwiftUI → AppKit channel for the popover's intrinsic content height so the
+/// host window can resize to it (different tabs/states differ in height, and the
+/// tallest ones used to clip the footer against a fixed frame).
+struct PopoverContentHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
 }
 
 struct QuotaWakePopoverView: View {
@@ -20,6 +32,7 @@ struct QuotaWakePopoverView: View {
     var toggleReadinessPaused: () -> Void = {}
     let quit: () -> Void
     var initialTab: PopoverTab = .overview
+    var onContentHeightChange: (CGFloat) -> Void = { _ in }
 
     @State private var selectedTab: PopoverTab?
 
@@ -54,8 +67,6 @@ struct QuotaWakePopoverView: View {
                     }
                 }
 
-                Spacer(minLength: 0)
-
                 // Transient status messages replace the gate note down here instead
                 // of joining the main flow, so tab content never changes height.
                 HStack(alignment: .center, spacing: 8) {
@@ -89,9 +100,16 @@ struct QuotaWakePopoverView: View {
             }
         }
         .padding(14)
-        // Top-aligned: if a state ever overflows the fixed frame it clips at the
-        // bottom instead of re-centering, so the tab bar never shifts vertically.
-        .frame(width: PopoverMetrics.size.width, height: PopoverMetrics.size.height, alignment: .top)
+        // Fixed width, intrinsic height: the content sizes to whatever the tab
+        // needs and the host window matches it (see onContentHeightChange), so no
+        // state can clip the footer the way a fixed height did.
+        .frame(width: PopoverMetrics.size.width, alignment: .top)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: PopoverContentHeightKey.self, value: geo.size.height)
+            }
+        )
         .background(.ultraThinMaterial)
         .background(QWTheme.glassSurface)
         .overlay(
@@ -100,6 +118,9 @@ struct QuotaWakePopoverView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .environment(\.colorScheme, .light)
+        .onPreferenceChange(PopoverContentHeightKey.self) { height in
+            onContentHeightChange(height)
+        }
     }
 
     /// The requested tab, falling back to the overview when the provider is not runnable.
