@@ -118,6 +118,58 @@ final class ObserveIfStaleTests: XCTestCase {
         XCTAssertEqual(observer.observeCount, 2, "Retry resumes after the failure backoff elapses")
     }
 
+    func testObserveIfStaleFailedObservationPreservesObservedQuotaDisplayFields() throws {
+        let fixture = try makeFixture()
+        try saveEnabledCodexOnlySettings(fixture)
+        let observedReset = Self.now.addingTimeInterval(3_600)
+        try fixture.quotaStateStore.save(QuotaWindowState(
+            tool: .codex,
+            source: .codexLocalAppServer,
+            confidence: .observedLocalQuota,
+            classification: .limitReached(resetAt: observedReset),
+            observedAt: Self.now.addingTimeInterval(-120),
+            resetAt: observedReset,
+            usedPercent: 47,
+            remainingPercent: 53,
+            windowLabel: "5h",
+            weeklyUsedPercent: 16,
+            weeklyRemainingPercent: 84,
+            summary: "codex local quota window observed"
+        ))
+
+        let observer = StubQuotaObserver(tool: .codex, classification: .unknownFailure)
+        let poller = makePoller(fixture: fixture, runner: RecordingToolRunner(), observer: observer, now: { Self.now })
+
+        try poller.observeIfStale(maxAgeSeconds: 55)
+
+        XCTAssertEqual(observer.observeCount, 1)
+        let state = try XCTUnwrap(fixture.quotaStateStore.load(tool: .codex))
+        XCTAssertEqual(state.classification, .unknownFailure, "Fresh observation outcome must win")
+        XCTAssertEqual(state.observedAt, Self.now)
+        XCTAssertEqual(state.resetAt, observedReset, "A failed probe must not blank the displayed reset countdown")
+        XCTAssertEqual(state.usedPercent, 47)
+        XCTAssertEqual(state.weeklyUsedPercent, 16)
+    }
+
+    func testObserveIfStaleFailureRetryOverrideRetriesSooner() throws {
+        let fixture = try makeFixture()
+        try saveEnabledCodexOnlySettings(fixture)
+
+        let observer = StubQuotaObserver(tool: .codex, classification: .unknownFailure)
+        var currentNow = Self.now
+        let poller = makePoller(fixture: fixture, runner: RecordingToolRunner(), observer: observer, now: { currentNow })
+
+        try poller.observeIfStale(maxAgeSeconds: 55)
+        XCTAssertEqual(observer.observeCount, 1)
+
+        currentNow = currentNow.addingTimeInterval(60)
+        try poller.observeIfStale(maxAgeSeconds: 55)
+        XCTAssertEqual(observer.observeCount, 1, "Default failure backoff still applies without the override")
+
+        try poller.observeIfStale(maxAgeSeconds: 55, failureRetrySeconds: 55)
+        XCTAssertEqual(observer.observeCount, 2, "The override retries a failed observation on the caller's cadence")
+    }
+
     func testObserveIfStaleOnlyObservesStaleEnabledTools() throws {
         let fixture = try makeFixture(tools: [.codex, .claude])
         var settings = AppSettings.default
