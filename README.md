@@ -28,14 +28,15 @@ when a local quota-window signal says a reset candidate is due and your Mac appe
 
 ## What is QuotaWake?
 
-AI coding assistants like **Claude Code** and **Codex** only run through their CLIs after you
-send a prompt. If that first readiness prompt happens after you sit down, it competes with
-the start of your workday.
+**Claude Code** and **Codex** meter usage in rolling windows — for example, Claude's
+5-hour window opens the moment you send your first prompt. Hit the limit mid-session and
+the CLI tells you the window resets in an hour or two… usually while you're away from
+the desk, and the reset quietly passes unused.
 
-**QuotaWake** sends a small readiness prompt (`hi` by default) through your already-installed
-CLIs when a reset-aware readiness check has a due quota-window candidate and your Mac
-appears actively in use. By the time you return to coding, the readiness attempt and its
-local confidence state are already logged.
+**QuotaWake** watches those local reset signals. When a reset candidate comes due and your
+Mac appears actively in use, it sends a small readiness prompt (`hi` by default) through
+your already-installed CLIs — so a fresh usage window is already open and logged by the
+time you sit back down, instead of starting on your first real prompt of the afternoon.
 
 > QuotaWake is about **usage-window scheduling and session readiness**, not bypassing limits.
 > It uses the official CLIs you already have installed and is transparent about every run.
@@ -46,7 +47,8 @@ local confidence state are already logged.
 
 - 🌙 **Lives in the menu bar** — a lightweight background utility, no Dock clutter.
 - 🤖 **Claude + Codex** — both enabled by default, each toggleable independently.
-- 🪟 **Reset-aware readiness** — uses local quota-window signals before sending.
+- 🪟 **Reset-aware readiness** — watches local quota-window signals ("resets 2pm") and
+  sends when the reset comes due, not on a blind timer.
 - 🖱 **Active-only gate** — skips background sends while the Mac appears idle or in suppressed power states.
 - 🚀 **Launch at login** — background scheduling via `SMAppService`.
 - ✍️ **Editable prompt** — defaults to `hi`; change it in Settings.
@@ -78,19 +80,45 @@ local confidence state are already logged.
 
 ## 🌗 How it works
 
+### A typical afternoon
+
 ```
-        ┌────────────────────────┐
-        │ local quota observation│  Codex app-server / Claude usage probe / CLI message
-        └───────────┬────────────┘
-                    ▼
-        ┌────────────────────────┐
-        │ reset-aware readiness  │  due candidate + active Mac + cooldown/idempotency
-        └───────────┬────────────┘
-                    ▼
-      claude --print "hi" / codex exec "hi"  ◀── runs as you, not root
-                    │
-                    ▼
-       readiness attempt + confidence state logged locally
+ 11:37  ⛔  you hit the 5-hour window limit mid-session
+            └─ the CLI reports "resets 2pm" — QuotaWake records the local reset signal
+
+ 12:10  🚶  you step away — lunch, a meeting, a long review
+
+ 14:00  ⏰  the reset candidate comes due · your Mac is still active
+            └─ QuotaWake runs `claude --print "hi"` — a fresh window opens now
+
+ 14:40  💻  you sit back down — the window has been open for 40 minutes,
+            and the attempt + confidence state are already in the local log
+```
+
+Without QuotaWake, that 14:00 reset passes silently and the next window only opens on
+your first real prompt of the afternoon. With it, session readiness is aligned to the
+reset — not to whenever you happen to return.
+
+### The pipeline
+
+Every automatic send goes through the same four stages:
+
+```
+        ┌─────────────────────────┐
+        │ local quota observation │   Codex app-server · Claude usage probe · CLI reset
+        └────────────┬────────────┘   message (e.g. "5-hour limit reached · resets 2pm")
+                     ▼
+        ┌─────────────────────────┐
+        │ reset-aware readiness   │   due candidate + active Mac
+        └────────────┬────────────┘   + cooldown / idempotency guards
+                     ▼
+        ┌─────────────────────────┐
+        │ readiness prompt        │   claude --print "hi" / codex exec "hi"
+        └────────────┬────────────┘   — runs as you, never as root
+                     ▼
+        ┌─────────────────────────┐
+        │ logged locally          │   time · tool · exit code · duration
+        └─────────────────────────┘   · decision source · confidence
 ```
 
 QuotaWake first looks for local quota-window signals. The source hierarchy is:
