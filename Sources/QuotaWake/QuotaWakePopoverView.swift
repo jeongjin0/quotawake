@@ -54,21 +54,16 @@ struct QuotaWakePopoverView: View {
                     }
                 }
 
-                if let message = model.statusMessage {
-                    Text(message)
-                        .font(.system(size: 11))
-                        .foregroundStyle(QWTheme.popoverInkSecondary)
-                        .lineLimit(2)
-                        .truncationMode(.tail)
-                }
-
                 Spacer(minLength: 0)
 
+                // Transient status messages replace the gate note down here instead
+                // of joining the main flow, so tab content never changes height.
                 HStack(alignment: .center, spacing: 8) {
-                    Text(activityNote(state))
+                    Text(model.statusMessage ?? activityNote(state))
                         .font(.system(size: 10.5))
                         .foregroundStyle(QWTheme.popoverInkTertiary)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                     Spacer(minLength: 6)
                     StatusPill(
                         title: state.statusTone == .success ? "Watching" : state.statusTitle,
@@ -94,7 +89,9 @@ struct QuotaWakePopoverView: View {
             }
         }
         .padding(14)
-        .frame(width: PopoverMetrics.size.width, height: PopoverMetrics.size.height)
+        // Top-aligned: if a state ever overflows the fixed frame it clips at the
+        // bottom instead of re-centering, so the tab bar never shifts vertically.
+        .frame(width: PopoverMetrics.size.width, height: PopoverMetrics.size.height, alignment: .top)
         .background(.ultraThinMaterial)
         .background(QWTheme.glassSurface)
         .overlay(
@@ -151,11 +148,14 @@ struct NextResetHero: View {
 
             if let countdown = state.nextResetCountdownText {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    // Fixed size: the countdown must render identically across
+                    // states; when space runs out the subline truncates instead.
                     Text(countdown)
                         .font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
                         .foregroundStyle(QWTheme.popoverInk)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .layoutPriority(1)
                     subline
                     Spacer(minLength: 0)
                 }

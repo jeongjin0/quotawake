@@ -268,11 +268,14 @@ struct ProviderNextResetHero: View {
                     .tracking(0.6)
                     .foregroundStyle(QWTheme.popoverInkTertiary)
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    // Fixed size: the countdown must render identically on every
+                    // tab; when space runs out the subline truncates instead.
                     Text(countdown)
                         .font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
                         .foregroundStyle(QWTheme.popoverInk)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .layoutPriority(1)
                     subline
                     Spacer(minLength: 0)
                 }
