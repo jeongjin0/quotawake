@@ -115,7 +115,10 @@ public final class QuotaReadinessPoller {
         let commands = commandsProvider()
         let logs = try logStore.readAll()
         let activity = (activityEvaluator ?? activityEvaluatorProvider(settings.readiness)).evaluate()
-        let completedEventIds = Set(logs.filter { providerWasInvoked(status: $0.status) }.map(\.eventId))
+        // Only successful sends complete a reset window; failed/timed-out
+        // attempts feed the engine's bounded retry (backoff + attempt cap)
+        // instead of permanently burning the window.
+        let completedEventIds = Set(logs.filter { $0.status == .sent }.map(\.eventId))
 
         for command in commands where settings.tools[command.tool].enabled {
             do {
@@ -154,8 +157,9 @@ public final class QuotaReadinessPoller {
             readiness: settings.readiness,
             now: currentTime,
             lastSuccessAt: lastSuccessAt(in: toolLogs),
-            lastSentAt: lastProviderAttemptAt(in: toolLogs),
-            completedResetWindowEventIds: completedEventIds
+            lastSentAt: lastSuccessAt(in: toolLogs),
+            completedResetWindowEventIds: completedEventIds,
+            failedSendAttempts: failedSendAttempts(in: toolLogs)
         ))
 
         switch decision {
@@ -517,16 +521,13 @@ public final class QuotaReadinessPoller {
         logs.filter { $0.status == .sent }.map(\.endedAt).max()
     }
 
-    private func lastProviderAttemptAt(in logs: [RunLogEntry]) -> Date? {
-        logs.filter { providerWasInvoked(status: $0.status) }.map(\.endedAt).max()
-    }
-
-    private func providerWasInvoked(status: RunStatus) -> Bool {
-        switch status {
-        case .sent, .failed, .timedOut:
-            return true
-        case .skippedOverlap, .skippedMissedWindow:
-            return false
+    private func failedSendAttempts(in logs: [RunLogEntry]) -> [String: QuotaSendAttemptHistory] {
+        let failures = logs.filter { $0.status == .failed || $0.status == .timedOut }
+        return Dictionary(grouping: failures, by: \.eventId).compactMapValues { entries in
+            guard let lastAttemptAt = entries.map(\.endedAt).max() else {
+                return nil
+            }
+            return QuotaSendAttemptHistory(count: entries.count, lastAttemptAt: lastAttemptAt)
         }
     }
 
@@ -538,7 +539,8 @@ public final class QuotaReadinessPoller {
         switch reason {
         case .toolDisabled, .resetNotDue, .quotaUnavailable:
             return false
-        case .idle, .activityUnavailable, .suppressedPowerState, .providerBlocked, .duplicateResetWindow, .cooldown:
+        case .idle, .activityUnavailable, .suppressedPowerState, .providerBlocked, .duplicateResetWindow,
+             .cooldown, .sendRetryBackoff, .sendAttemptsExhausted:
             return true
         }
     }
@@ -563,6 +565,10 @@ public final class QuotaReadinessPoller {
             return "duplicate_reset_window"
         case .cooldown:
             return "cooldown"
+        case .sendRetryBackoff:
+            return "send_retry_backoff"
+        case .sendAttemptsExhausted:
+            return "send_attempts_exhausted"
         }
     }
 }

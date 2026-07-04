@@ -272,6 +272,47 @@ final class QuotaReadinessEngineTests: XCTestCase {
         )))
     }
 
+    func testFailedAttemptWaitsForRetryBackoffThenSends() {
+        let eventId = "reset-window-codex-2026-06-28T23:50:00Z"
+        let attempts = [eventId: QuotaSendAttemptHistory(count: 1, lastAttemptAt: now.addingTimeInterval(-60))]
+
+        let blocked = engine.evaluate(input: input(
+            quotaWindow: quotaWindow(confidence: .observedLocalQuota, resetAt: resetAt),
+            activity: .active,
+            failedSendAttempts: attempts
+        ))
+        XCTAssertEqual(blocked, .wait(QuotaReadinessWait(
+            reason: .sendRetryBackoff(until: now.addingTimeInterval(540)),
+            nextCandidate: event(resetAt: resetAt),
+            source: .cooldown
+        )))
+
+        let retried = engine.evaluate(input: input(
+            now: now.addingTimeInterval(601),
+            quotaWindow: quotaWindow(confidence: .observedLocalQuota, resetAt: resetAt),
+            activity: .active,
+            failedSendAttempts: [eventId: QuotaSendAttemptHistory(count: 1, lastAttemptAt: now)]
+        ))
+        XCTAssertEqual(retried, .send(event(resetAt: resetAt)))
+    }
+
+    func testExhaustedFailedAttemptsNeverSend() {
+        let eventId = "reset-window-codex-2026-06-28T23:50:00Z"
+
+        let decision = engine.evaluate(input: input(
+            now: now.addingTimeInterval(7_200),
+            quotaWindow: quotaWindow(confidence: .observedLocalQuota, resetAt: resetAt),
+            activity: .active,
+            failedSendAttempts: [eventId: QuotaSendAttemptHistory(count: 3, lastAttemptAt: now)]
+        ))
+
+        XCTAssertEqual(decision, .wait(QuotaReadinessWait(
+            reason: .sendAttemptsExhausted,
+            nextCandidate: event(resetAt: resetAt),
+            source: .idempotency
+        )))
+    }
+
     private func input(
         now: Date? = nil,
         quotaWindow: QuotaWindowState?,
@@ -280,7 +321,8 @@ final class QuotaReadinessEngineTests: XCTestCase {
         readiness: WindowReadinessSettings = WindowReadinessSettings(),
         lastSuccessAt: Date? = nil,
         lastSentAt: Date? = nil,
-        completedResetWindowEventIds: Set<String> = []
+        completedResetWindowEventIds: Set<String> = [],
+        failedSendAttempts: [String: QuotaSendAttemptHistory] = [:]
     ) -> QuotaReadinessInput {
         QuotaReadinessInput(
             tool: .codex,
@@ -291,7 +333,8 @@ final class QuotaReadinessEngineTests: XCTestCase {
             now: now ?? self.now,
             lastSuccessAt: lastSuccessAt,
             lastSentAt: lastSentAt,
-            completedResetWindowEventIds: completedResetWindowEventIds
+            completedResetWindowEventIds: completedResetWindowEventIds,
+            failedSendAttempts: failedSendAttempts
         )
     }
 

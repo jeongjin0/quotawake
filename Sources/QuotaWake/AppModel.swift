@@ -56,6 +56,7 @@ final class QuotaWakeAppModel: ObservableObject {
     private let updateURLOpener: UpdateURLOpening
     private let poller: QuotaReadinessPoller
     private var pollerTask: Task<Void, Never>?
+    private var wakeObserver: NSObjectProtocol?
 
     init(
         paths: QuotaWakePaths = QuotaWakePaths(),
@@ -234,11 +235,43 @@ final class QuotaWakeAppModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: nanoseconds)
             }
         }
+        // Task.sleep pauses while the Mac sleeps, so a reset that came due
+        // during sleep would otherwise wait for the next post-wake tick at an
+        // arbitrary offset. Run one catch-up pass as soon as the system wakes.
+        if wakeObserver == nil {
+            wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didWakeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.pollOnceAfterWake()
+                }
+            }
+        }
     }
 
     func stopResetAwarePoller() {
         pollerTask?.cancel()
         pollerTask = nil
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+            self.wakeObserver = nil
+        }
+    }
+
+    private func pollOnceAfterWake() {
+        guard pollerTask != nil else {
+            return
+        }
+        let poller = self.poller
+        Task { [weak self] in
+            await Self.runBlocking {
+                try? poller.tick()
+                try? poller.observeIfStale(maxAgeSeconds: 55)
+            }
+            self?.refreshAfterPollTick()
+        }
     }
 
     private func refreshAfterPollTick() {

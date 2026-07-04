@@ -86,6 +86,73 @@ final class CLIExecutorTests: XCTestCase {
         XCTAssertEqual(logs[0].exitCode, 7)
     }
 
+    func testExitZeroWithUsageLimitOutputLogsFailedNotSent() throws {
+        let fixture = try makeFixture()
+        let executable = try makeFakeExecutable(
+            name: "claude",
+            in: fixture.binDirectory,
+            captureDirectory: fixture.captureDirectory,
+            body: "printf 'You have hit your usage limit. Your limit resets in 2 hours.\\n'\nexit 0\n"
+        )
+        let runner = ToolRunner(logStore: fixture.logStore)
+
+        let entry = try runner.run(makeRequest(
+            tool: .claude,
+            executableURL: executable,
+            fixture: fixture,
+            timeoutSeconds: 5
+        ))
+
+        XCTAssertEqual(entry.status, .failed, "exit 0 with a usage-limit banner must not count as a sent readiness prompt")
+        XCTAssertEqual(entry.exitCode, 0)
+        XCTAssertEqual(entry.errorSummary, "CLI exited 0 but reported a usage limit; not counting as a sent readiness prompt")
+        let logs = try fixture.logStore.readAll()
+        XCTAssertEqual(logs.count, 1)
+        XCTAssertEqual(logs[0].status, .failed)
+    }
+
+    func testExitZeroReplyMerelyMentioningRateLimitsStaysSent() throws {
+        let fixture = try makeFixture()
+        let executable = try makeFakeExecutable(
+            name: "claude",
+            in: fixture.binDirectory,
+            captureDirectory: fixture.captureDirectory,
+            body: "printf 'Rate limiting is a common API design pattern used to protect servers.\\n'\nexit 0\n"
+        )
+        let runner = ToolRunner(logStore: fixture.logStore)
+
+        let entry = try runner.run(makeRequest(
+            tool: .claude,
+            executableURL: executable,
+            fixture: fixture,
+            timeoutSeconds: 5
+        ))
+
+        XCTAssertEqual(entry.status, .sent, "a normal reply mentioning rate limits must not be demoted")
+        XCTAssertNil(entry.errorSummary)
+    }
+
+    func testExitZeroWithLoginPromptOutputLogsFailedNotSent() throws {
+        let fixture = try makeFixture()
+        let executable = try makeFakeExecutable(
+            name: "claude",
+            in: fixture.binDirectory,
+            captureDirectory: fixture.captureDirectory,
+            body: "printf 'Not logged in. Please login to continue.\\n'\nexit 0\n"
+        )
+        let runner = ToolRunner(logStore: fixture.logStore)
+
+        let entry = try runner.run(makeRequest(
+            tool: .claude,
+            executableURL: executable,
+            fixture: fixture,
+            timeoutSeconds: 5
+        ))
+
+        XCTAssertEqual(entry.status, .failed)
+        XCTAssertEqual(entry.errorSummary, "CLI exited 0 but reported authentication is required")
+    }
+
     func testTimeoutTerminatesProcessAndLogsTimedOut() throws {
         let fixture = try makeFixture()
         let executable = try makeFakeExecutable(

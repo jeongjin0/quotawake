@@ -48,15 +48,22 @@ build/QA commands live in `DEVELOPMENT.md`.
         so the popover never blanks to Unknown while data is merely stale.
 ```
 
+The 60-second loop's `Task.sleep` pauses while the Mac sleeps, so
+`QuotaWakeAppModel` also listens for `NSWorkspace.didWakeNotification` and runs
+one immediate catch-up pass (tick + stale observe) on system wake instead of
+waiting for the next post-wake tick.
+
 ## Decision engine
 
 `QuotaReadinessEngine` is pure (no I/O). Source hierarchy: observed local
 quota → exact observed reset → estimated 5-hour candidate (only when
 estimation is enabled) → unknown (strict mode observes instead of sending).
-Gates, in order: candidate due → activity gate → idempotency (persisted via
-run logs, so relaunches cannot double-send) → cooldown. Blocked/unavailable
-states older than ~15 minutes yield `observeNeeded(.staleProviderState)` so a
-one-time failure self-heals.
+Gates, in order: candidate due → activity gate → idempotency (successful sends
+only, persisted via run logs, so relaunches cannot double-send) → bounded
+failure retry (a failed/timed-out send retries after a 10-minute backoff, at
+most 3 attempts per reset window) → cooldown (keyed to the last successful
+send). Blocked/unavailable states older than ~15 minutes yield
+`observeNeeded(.staleProviderState)` so a one-time failure self-heals.
 
 ## Core files (active)
 
@@ -96,6 +103,11 @@ like it.
   (`CLIChildEnvironmentPolicy`); `live_cli_smoke.sh` mirrors the same key list.
 - Everything written to disk passes a sanitizer (`RunLogSanitizer`,
   `QuotaWindowSanitizer`) first.
-- Failed/timed-out sends count as attempts for idempotency: one attempt per
-  reset window, no automatic retry (pinned by
-  `testFailedAndTimedOutResetWindowAttemptsPreventImmediateRetry`).
+- Failed/timed-out sends retry with a bounded backoff instead of burning the
+  reset window: no immediate retry (10-minute backoff, pinned by
+  `testFailedAndTimedOutResetWindowAttemptsPreventImmediateRetry`), retry
+  allowed after the backoff (`testFailedSendRetriesAfterBackoffElapses`), and
+  a hard cap of 3 attempts per reset window
+  (`testExhaustedSendAttemptsStopRetrying`). A send that exits 0 while its
+  output reports a usage limit or login prompt is graded `.failed`, not
+  `.sent`, so it cannot complete the window or anchor the 5h estimate.

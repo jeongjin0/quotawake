@@ -379,7 +379,7 @@ public final class ToolRunner {
 
         do {
             let result = try executor.run(executionRequest)
-            let status = Self.status(for: result)
+            let graded = Self.gradedStatus(for: result, tool: command.tool)
             let entry = RunLogEntry(
                 eventId: request.eventId,
                 scheduledAt: request.scheduledAt,
@@ -387,14 +387,14 @@ public final class ToolRunner {
                 endedAt: result.endedAt,
                 tool: command.tool,
                 commandPath: executableURL.path,
-                status: status,
+                status: graded.status,
                 exitCode: result.exitCode,
                 durationMs: result.durationMs,
                 timedOut: result.timedOut,
                 stdoutSummary: result.stdout,
                 stderrSummary: result.stderr,
                 prompt: request.prompt,
-                errorSummary: status == .failed ? "CLI exited with code \(result.exitCode ?? -1)" : nil,
+                errorSummary: graded.errorSummary,
                 decisionSource: request.decisionSource,
                 quotaConfidence: request.quotaConfidence
             )
@@ -431,11 +431,49 @@ public final class ToolRunner {
         try logStore.append(entry)
     }
 
-    private static func status(for result: CLIExecutionResult) -> RunStatus {
+    private static func gradedStatus(
+        for result: CLIExecutionResult,
+        tool: ToolKind
+    ) -> (status: RunStatus, errorSummary: String?) {
         if result.timedOut {
-            return .timedOut
+            return (.timedOut, nil)
         }
-        return result.exitCode == 0 ? .sent : .failed
+        guard result.exitCode == 0 else {
+            return (.failed, "CLI exited with code \(result.exitCode ?? -1)")
+        }
+        // Some CLIs exit 0 while reporting they could not serve the prompt
+        // (usage limit banner, login prompt). Recording those as sent would
+        // mark the reset window completed and anchor the next 5h estimate on
+        // a send that never started a window.
+        let parsed = QuotaWindowParser.parse(
+            tool: tool,
+            source: .cliMessageParser,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            exitCode: result.exitCode,
+            timedOut: result.timedOut,
+            observedAt: result.endedAt
+        )
+        switch parsed.classification {
+        case .limitReached:
+            return (.failed, "CLI exited 0 but reported a usage limit; not counting as a sent readiness prompt")
+        case .authRequired:
+            return (.failed, "CLI exited 0 but reported authentication is required")
+        case .usageLimitNoReset:
+            // Keyword-only match with no parsed reset time is a weaker signal:
+            // a normal model reply that merely mentions "rate limit" must not
+            // be demoted, so require an explicit limit-banner phrase.
+            let lowered = (result.stdout + "\n" + result.stderr).lowercased()
+            let bannerPhrases = ["usage limit", "limit reached", "hit your limit"]
+            if bannerPhrases.contains(where: lowered.contains) {
+                return (.failed, "CLI exited 0 but reported a usage limit without a reset time")
+            }
+            return (.sent, nil)
+        case .apiBillingEnvPresent:
+            return (.failed, "CLI exited 0 but reported an API billing key environment")
+        case .sent, .quotaUnavailable, .unknownFailure:
+            return (.sent, nil)
+        }
     }
 }
 
