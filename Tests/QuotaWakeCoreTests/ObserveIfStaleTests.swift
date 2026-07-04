@@ -308,6 +308,55 @@ final class ObserveIfStaleTests: XCTestCase {
         XCTAssertEqual(state.resetAt, resetAt, "The reset candidate must remain visible")
     }
 
+    // Once a successful send (scheduled or manual Run Now) landed at/after
+    // the candidate's reset, the candidate is consumed: retaining it would
+    // shadow the estimated-5h fallback and re-arm a duplicate automatic send
+    // after a manual one (manual sends log their own event id, so the
+    // idempotency set never contains the retained candidate's id).
+    func testSignalLessObservationDoesNotRetainConsumedResetCandidate() throws {
+        let fixture = try makeFixture()
+        try saveEnabledCodexOnlySettings(fixture)
+        let resetAt = Self.now.addingTimeInterval(-300)
+        try fixture.quotaStateStore.save(QuotaWindowState(
+            tool: .codex,
+            source: .codexLocalAppServer,
+            confidence: .observedLocalQuota,
+            classification: .limitReached(resetAt: resetAt),
+            observedAt: Self.now.addingTimeInterval(-120),
+            resetAt: resetAt,
+            usedPercent: 12,
+            summary: "window observed before reset"
+        ))
+        try fixture.logStore.append(RunLogEntry(
+            eventId: "manual-send-now-codex",
+            scheduledAt: Self.now.addingTimeInterval(-60),
+            startedAt: Self.now.addingTimeInterval(-60),
+            endedAt: Self.now.addingTimeInterval(-59),
+            tool: .codex,
+            commandPath: "/tmp/fake-codex",
+            status: .sent,
+            exitCode: 0,
+            durationMs: 1_000,
+            timedOut: false,
+            stdoutSummary: "Hi!",
+            stderrSummary: "",
+            prompt: "hi",
+            errorSummary: nil,
+            decisionSource: .toolSettings,
+            quotaConfidence: nil,
+            skipReason: nil
+        ))
+
+        let observer = StubQuotaObserver(tool: .codex)
+        let poller = makePoller(fixture: fixture, runner: RecordingToolRunner(), observer: observer, now: { Self.now })
+
+        try poller.observeIfStale(maxAgeSeconds: 55)
+
+        let state = try XCTUnwrap(fixture.quotaStateStore.load(tool: .codex))
+        XCTAssertEqual(state.classification, .sent, "a consumed candidate must not be retained")
+        XCTAssertEqual(state.resetAt, resetAt, "display fields still carry forward")
+    }
+
     func testSignalLessBlockedObservationReplacesResetCandidate() throws {
         let fixture = try makeFixture()
         try saveEnabledCodexOnlySettings(fixture)

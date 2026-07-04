@@ -26,7 +26,10 @@ build/QA commands live in `DEVELOPMENT.md`.
    │         ├─ QuotaReadinessEngine.evaluate(input) ──▶ send / wait / observeNeeded
    │         ├─ send:    ToolRunner.run() ──▶ CLIExecutor (timeout, env scrub,
    │         │           overlap guard, ProcessTreeTerminator) ──▶ RunLogStore
-   │         │           └─ QuotaWindowParser.parse(output) ──▶ QuotaWindowStateStore
+   │         │           ├─ QuotaWindowParser.parse(output) ──▶ QuotaWindowStateStore
+   │         │           └─ successful sends: one immediate post-send
+   │         │             verification observe (unthrottled; read-only) so
+   │         │             the freshly started window is stored right away
    │         ├─ wait:    transition-deduped skip entry ──▶ RunLogStore
    │         └─ observe: (readiness path; throttled to one probe / tool / 10 min)
    │                     CodexQuotaAdapter (codex app-server JSON-RPC) or
@@ -41,11 +44,16 @@ build/QA commands live in `DEVELOPMENT.md`.
         with a 30-second threshold and a matching failure-retry override, so a
         failed probe heals on the next open instead of waiting out the backoff.
         Its log entries dedupe on outcome only, so a moving usage percent does
-        not append a row per pass. A signal-less result (failed/blocked probe,
-        or a send whose output carries no quota fields) keeps its fresh
-        classification/summary/observedAt but carries the previous
-        observation's display fields (reset countdown, percentages) forward,
-        so the popover never blanks to Unknown while data is merely stale.
+        not append a row per pass. State merge: fresh quota fields win
+        field-wise and the previous observation fills the gaps, so the popover
+        never blanks to Unknown while data is merely stale. An uninformative
+        result (a send's reply text, a failed probe, or the idle post-reset
+        panel — including its "0% used, no resets clause" shape) additionally
+        retains a previous unconsumed limitReached reset candidate so the due
+        wake cannot be erased before the engine consumes it; once a successful
+        send lands at/after that reset the candidate is consumed and the fresh
+        classification wins (which is what lets the estimated-5h chain resume).
+        Blocked classifications (auth, billing env) always win.
 ```
 
 The 60-second loop's `Task.sleep` pauses while the Mac sleeps, so
@@ -61,8 +69,9 @@ estimation is enabled) → unknown (strict mode observes instead of sending).
 Gates, in order: candidate due → activity gate → idempotency (successful sends
 only, persisted via run logs, so relaunches cannot double-send) → bounded
 failure retry (a failed/timed-out send retries after a 10-minute backoff, at
-most 3 attempts per reset window) → cooldown (keyed to the last successful
-send). Blocked/unavailable states older than ~15 minutes yield
+most 3 attempts per reset window) → cooldown (keyed to the last provider
+attempt of any outcome, so attempts on different reset candidates stay
+spaced). Blocked/unavailable states older than ~15 minutes yield
 `observeNeeded(.staleProviderState)` so a one-time failure self-heals.
 
 ## Core files (active)

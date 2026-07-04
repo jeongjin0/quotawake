@@ -41,9 +41,17 @@ final class BoundedPipeCollector {
                 self?.append(chunk)
             }
         }
-        _ = reachedEOF.wait(timeout: .now() + drainDeadlineSeconds)
-        pipe.fileHandleForReading.readabilityHandler = nil
-        try? pipe.fileHandleForReading.close()
+        if reachedEOF.wait(timeout: .now() + drainDeadlineSeconds) == .success {
+            try? pipe.fileHandleForReading.close()
+        } else {
+            // Deadline hit: a stray writer still holds the pipe. Removing the
+            // handler cancels its dispatch source asynchronously, so an
+            // in-flight invocation may still touch the handle — closing the
+            // fd here would make that availableData call raise an uncatchable
+            // NSFileHandleOperationException. Leave the close to FileHandle's
+            // deinit once the collector is released.
+            pipe.fileHandleForReading.readabilityHandler = nil
+        }
     }
 
     func string() -> String {

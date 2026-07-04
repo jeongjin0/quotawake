@@ -41,7 +41,7 @@ public final class QuotaReadinessPoller {
     // unavailable or unparseable output), so a broken local quota source does
     // not spawn a probe subprocess on every 60-second display refresh.
     private let failureRetryIntervalSeconds: TimeInterval
-    private let lock = NSLock()
+    private let lock = NSCondition()
     private var workRunning = false
 
     public init(
@@ -75,6 +75,9 @@ public final class QuotaReadinessPoller {
     }
 
     public func sendNow() throws {
+        beginExclusiveWorkBlocking()
+        defer { endExclusiveWork() }
+
         let settings = try settingsStore.load()
         let commands = commandsProvider()
         let scheduledAt = now()
@@ -96,9 +99,7 @@ public final class QuotaReadinessPoller {
     }
 
     public func tick() throws {
-        guard beginExclusiveWork() else {
-            return
-        }
+        beginExclusiveWorkBlocking()
         defer { endExclusiveWork() }
 
         let settings = try settingsStore.load()
@@ -157,7 +158,10 @@ public final class QuotaReadinessPoller {
             readiness: settings.readiness,
             now: currentTime,
             lastSuccessAt: lastSuccessAt(in: toolLogs),
-            lastSentAt: lastSuccessAt(in: toolLogs),
+            // Cooldown spaces provider invocations regardless of outcome, so a
+            // failed attempt on one reset candidate cannot be followed one
+            // minute later by a send for a freshly observed different one.
+            lastSentAt: lastProviderAttemptAt(in: toolLogs),
             completedResetWindowEventIds: completedEventIds,
             failedSendAttempts: failedSendAttempts(in: toolLogs)
         ))
@@ -214,12 +218,16 @@ public final class QuotaReadinessPoller {
         }
     }
 
-    public func observeNow() throws {
+    // Returns false when the observe was skipped because a tick or send was
+    // mid-flight, so the caller can report honestly instead of claiming a
+    // fresh observation happened.
+    @discardableResult
+    public func observeNow() throws -> Bool {
         // Manual Reload runs on its own queue; skip instead of racing a tick
         // or send that is mid-flight — the caller's refresh still shows the
         // latest on-disk state.
         guard beginExclusiveWork() else {
-            return
+            return false
         }
         defer { endExclusiveWork() }
 
@@ -236,6 +244,7 @@ public final class QuotaReadinessPoller {
                 previousToolLogs: []
             )
         }
+        return true
     }
 
     // Display-freshness observe: re-probes local quota sources for enabled
@@ -299,6 +308,7 @@ public final class QuotaReadinessPoller {
         }
     }
 
+    // Display observes try-and-skip: showing the last on-disk state is fine.
     private func beginExclusiveWork() -> Bool {
         lock.lock()
         defer { lock.unlock() }
@@ -309,9 +319,23 @@ public final class QuotaReadinessPoller {
         return true
     }
 
+    // Ticks and sends must not be silently dropped when a short display
+    // observe on the other queue holds the flag — a due wake would slip a
+    // full poll interval. They wait for the flag instead (observes are
+    // bounded by their probe timeouts, so the wait is seconds at most).
+    private func beginExclusiveWorkBlocking() {
+        lock.lock()
+        while workRunning {
+            lock.wait()
+        }
+        workRunning = true
+        lock.unlock()
+    }
+
     private func endExclusiveWork() {
         lock.lock()
         workRunning = false
+        lock.broadcast()
         lock.unlock()
     }
 
@@ -414,13 +438,23 @@ public final class QuotaReadinessPoller {
         // signal-less text, and the fresh-session "0% used" line without a
         // resets clause (usedPercent parses but no reset time does). Blocked
         // classifications and a newly parsed reset are real signals and win.
+        // A candidate whose reset was already answered by a successful send
+        // (scheduled or manual "Run now") is consumed: retaining it would
+        // shadow the estimated-5h fallback forever, and — for manual sends,
+        // which log their own event id — re-arm an automatic duplicate send.
         let retainsCandidate: Bool
-        if case .limitReached = previous.classification {
-            switch parsed.classification {
-            case .sent, .quotaUnavailable, .unknownFailure:
-                retainsCandidate = true
-            case .limitReached, .authRequired, .apiBillingEnvPresent, .usageLimitNoReset:
+        if case let .limitReached(classificationResetAt) = previous.classification {
+            let candidateResetAt = previous.resetAt ?? classificationResetAt
+            let consumed = lastToolSuccessAt(previous.tool).map { $0 >= candidateResetAt } ?? false
+            if consumed {
                 retainsCandidate = false
+            } else {
+                switch parsed.classification {
+                case .sent, .quotaUnavailable, .unknownFailure:
+                    retainsCandidate = true
+                case .limitReached, .authRequired, .apiBillingEnvPresent, .usageLimitNoReset:
+                    retainsCandidate = false
+                }
             }
         } else {
             retainsCandidate = false
@@ -574,6 +608,21 @@ public final class QuotaReadinessPoller {
 
     private func lastSuccessAt(in logs: [RunLogEntry]) -> Date? {
         logs.filter { $0.status == .sent }.map(\.endedAt).max()
+    }
+
+    private func lastProviderAttemptAt(in logs: [RunLogEntry]) -> Date? {
+        logs.filter { $0.status == .sent || $0.status == .failed || $0.status == .timedOut }
+            .map(\.endedAt)
+            .max()
+    }
+
+    // Standalone read for the state-merge path, which does not always have
+    // this tick's log snapshot in hand (manual sendNow, display observes).
+    private func lastToolSuccessAt(_ tool: ToolKind) -> Date? {
+        guard let logs = try? logStore.readAll() else {
+            return nil
+        }
+        return lastSuccessAt(in: logs.filter { $0.tool == tool })
     }
 
     private func failedSendAttempts(in logs: [RunLogEntry]) -> [String: QuotaSendAttemptHistory] {

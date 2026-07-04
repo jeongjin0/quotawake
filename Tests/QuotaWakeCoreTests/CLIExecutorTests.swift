@@ -111,6 +111,30 @@ final class CLIExecutorTests: XCTestCase {
         XCTAssertEqual(logs[0].status, .failed)
     }
 
+    func testExitZeroReplyWithParseableResetButNoBannerPhraseStaysSent() throws {
+        let fixture = try makeFixture()
+        // A delivered reply can legitimately contain "try again in 5 minutes"
+        // (parses as limitReached); without an explicit banner phrase it must
+        // not be demoted, or the bounded retry would send real duplicates.
+        let executable = try makeFakeExecutable(
+            name: "claude",
+            in: fixture.binDirectory,
+            captureDirectory: fixture.captureDirectory,
+            body: "printf 'Sure - if the server is busy, try again in 5 minutes.\\n'\nexit 0\n"
+        )
+        let runner = ToolRunner(logStore: fixture.logStore)
+
+        let entry = try runner.run(makeRequest(
+            tool: .claude,
+            executableURL: executable,
+            fixture: fixture,
+            timeoutSeconds: 5
+        ))
+
+        XCTAssertEqual(entry.status, .sent, "a reply mentioning a retry time is not a limit banner")
+        XCTAssertNil(entry.errorSummary)
+    }
+
     func testExitZeroReplyMerelyMentioningRateLimitsStaysSent() throws {
         let fixture = try makeFixture()
         let executable = try makeFakeExecutable(

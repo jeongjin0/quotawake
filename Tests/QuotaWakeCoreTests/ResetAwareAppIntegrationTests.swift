@@ -393,6 +393,63 @@ final class ResetAwareAppIntegrationTests: XCTestCase {
         XCTAssertEqual(runner.requests.first?.eventId, eventId)
     }
 
+    func testFailedAttemptStillArmsCooldownForADifferentResetCandidate() throws {
+        let fixture = try makeFixture()
+        var settings = AppSettings.default
+        settings.firstRunCompleted = true
+        settings.tools.claude.enabled = false
+        settings.tools.codex.enabled = true
+        settings.background.launchAtLoginEnabled = true
+        settings.readiness.activeOnly = true
+        settings.readiness.minimumSendCooldownMinutes = 30
+        try fixture.settingsStore.save(settings)
+        try fixture.quotaStateStore.save(QuotaWindowState(
+            tool: .codex,
+            source: .cliMessageParser,
+            confidence: .exactReset,
+            classification: .limitReached(resetAt: Self.now.addingTimeInterval(-120)),
+            observedAt: Self.now.addingTimeInterval(-60),
+            resetAt: Self.now.addingTimeInterval(-120),
+            summary: "first candidate due"
+        ))
+
+        let runner = RecordingToolRunner(results: [
+            .codex: Self.runEntry(status: .failed, timedOut: false)
+        ])
+        let poller = QuotaReadinessPoller(
+            paths: fixture.paths,
+            settingsStore: fixture.settingsStore,
+            logStore: fixture.logStore,
+            quotaStateStore: fixture.quotaStateStore,
+            commandsProvider: { [fixture.command] },
+            runner: runner,
+            activityEvaluator: SequenceActivityEvaluator([.active, .active]),
+            now: { Self.now }
+        )
+
+        try poller.tick()
+        XCTAssertEqual(runner.requests.count, 1)
+
+        // A different reset candidate observed a minute later must still wait
+        // out the configured cooldown from the failed attempt, not fire
+        // immediately because its own attempt history is empty.
+        try fixture.quotaStateStore.save(QuotaWindowState(
+            tool: .codex,
+            source: .cliMessageParser,
+            confidence: .exactReset,
+            classification: .limitReached(resetAt: Self.now.addingTimeInterval(-60)),
+            observedAt: Self.now,
+            resetAt: Self.now.addingTimeInterval(-60),
+            summary: "second candidate due"
+        ))
+        try poller.tick()
+
+        XCTAssertEqual(runner.requests.count, 1, "cooldown must space attempts across candidates")
+        let logs = try fixture.logStore.readAll()
+        XCTAssertEqual(logs.last?.status, .skippedMissedWindow)
+        XCTAssertEqual(logs.last?.skipReason, "cooldown")
+    }
+
     func testSuccessfulSendTriggersVerificationObserveAndStoresNewWindow() throws {
         let fixture = try makeFixture()
         var settings = AppSettings.default

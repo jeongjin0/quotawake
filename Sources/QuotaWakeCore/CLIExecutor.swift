@@ -459,18 +459,22 @@ public final class ToolRunner {
             timedOut: result.timedOut,
             observedAt: result.endedAt
         )
+        // Keyword-level classification alone is too weak to overturn a
+        // delivered reply: a custom prompt's answer can legitimately contain
+        // "rate limit", "try again", or "resets in 3 hours". Demoting such a
+        // send would trigger the bounded retry and burn real quota, so limit
+        // demotions additionally require an explicit banner phrase.
+        let explicitBanner = QuotaWindowParser.containsExplicitLimitBanner(result.stdout + "\n" + result.stderr)
         switch parsed.classification {
         case .limitReached:
-            return (.failed, "CLI exited 0 but reported a usage limit; not counting as a sent readiness prompt")
+            if explicitBanner {
+                return (.failed, "CLI exited 0 but reported a usage limit; not counting as a sent readiness prompt")
+            }
+            return (.sent, nil)
         case .authRequired:
             return (.failed, "CLI exited 0 but reported authentication is required")
         case .usageLimitNoReset:
-            // Keyword-only match with no parsed reset time is a weaker signal:
-            // a normal model reply that merely mentions "rate limit" must not
-            // be demoted, so require an explicit limit-banner phrase.
-            let lowered = (result.stdout + "\n" + result.stderr).lowercased()
-            let bannerPhrases = ["usage limit", "limit reached", "hit your limit"]
-            if bannerPhrases.contains(where: lowered.contains) {
+            if explicitBanner {
                 return (.failed, "CLI exited 0 but reported a usage limit without a reset time")
             }
             return (.sent, nil)
