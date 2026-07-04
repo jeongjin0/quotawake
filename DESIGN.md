@@ -171,23 +171,24 @@ All spacing derives from a 4pt base.
 
 ### Settings Pane
 
-- **Structure**: sidebar section list plus detail pane, or equivalent native Settings grouping.
-- **Variants**: General, Tools, Window Readiness, Prompt, Logs.
-- **Spacing**: `space6` outer padding, `space4` group padding, 240pt label column for standard rows, compact 52pt row minimums.
+- **Structure**: native sidebar `List` (SF Symbol + title per pane) plus a grouped `Form` detail pane (`.formStyle(.grouped)`); the Logs pane hosts a native `Table` instead of a Form.
+- **Variants**: General, Providers, Window Readiness, Prompt, Logs.
+- **Spacing**: native grouped-form metrics; `LabeledContent` label/value rows. `QWDesign.space*` tokens apply only to custom-built rows (status row, provider status row, logs header).
 - **States**: normal, error banner, disabled controls, pressed buttons, focused text inputs, light appearance, dark appearance, and 720x520pt resize minimum.
 - **Accessibility**: each control has a visible label and native focus ring.
-- **Rules**: segmented controls and multiline editors use below-label placement.
-  General toggles, steppers, and short actions use trailing placement. Action
-  groups may use full-width placement when buttons need to wrap.
+- **Rules**: segmented controls and multiline editors render as full-width rows;
+  toggles, steppers, and short actions use native trailing placement. Explanatory
+  copy lives in section footers, not inline captions, when it applies to the group.
 
 ### Log Table
 
-- **Structure**: time, tool, status, duration, exit code, summary.
+- **Structure**: native `Table` with time, tool, status, duration, exit code, summary columns.
 - **Variants**: empty, populated, error rows.
-- **Spacing**: native list-style row metrics with stable column widths and a
-  horizontal scroll fallback at the Settings minimum.
+- **Spacing**: native table row metrics with per-column minimum widths; at the
+  720x520pt Settings minimum, the summary column truncates with a tooltip
+  instead of a horizontal scroll fallback.
 - **States**: selected row, empty state.
-- **Accessibility**: column headers remain visible and summaries are text, not color-only. Empty logs render an explicit empty state.
+- **Accessibility**: column headers remain visible and summaries are text, not color-only. Empty logs render an explicit empty state overlay.
 
 ## 6. Motion & Interaction
 
