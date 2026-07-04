@@ -326,7 +326,7 @@ public final class ToolRunner {
                 stdoutSummary: "",
                 stderrSummary: "",
                 prompt: request.prompt,
-                errorSummary: "Tool is already running",
+                errorSummary: "Provider is already running",
                 decisionSource: request.decisionSource,
                 quotaConfidence: request.quotaConfidence,
                 skipReason: "overlap"

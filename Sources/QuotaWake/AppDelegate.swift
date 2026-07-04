@@ -23,6 +23,7 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
         _ = try? BundleMetadata.production.validate()
+        installMainMenu()
 
         #if DEBUG
         if let qaConfig {
@@ -300,6 +301,36 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// LSUIElement apps have no visible menu bar, but Cmd-key equivalents still
+    /// route through NSApp.mainMenu — without one, copy/paste/undo and Cmd+W are
+    /// dead in the settings window's text fields.
+    @MainActor
+    private func installMainMenu() {
+        let mainMenu = NSMenu()
+
+        let editMenuItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(redo)
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenuItem.submenu = editMenu
+        mainMenu.addItem(editMenuItem)
+
+        let windowMenuItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windowMenuItem.submenu = windowMenu
+        mainMenu.addItem(windowMenuItem)
+
+        NSApp.mainMenu = mainMenu
+    }
+
     @MainActor
     private func showSettings() {
         guard let model else {
@@ -321,6 +352,9 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
         window.title = "QuotaWake Settings"
         window.minSize = NSSize(width: 720, height: 520)
         window.contentViewController = NSHostingController(rootView: QuotaWakeSettingsView(model: model))
+        // Assigning contentViewController resizes the window to the hosting
+        // controller's fitting size; restore the documented 980x680 default.
+        window.setContentSize(NSSize(width: 980, height: 680))
         window.center()
         window.makeKeyAndOrderFront(nil)
         settingsWindow = window
@@ -365,6 +399,10 @@ final class QuotaWakeApplicationDelegate: NSObject, NSApplicationDelegate {
     #if DEBUG
     @MainActor
     private func runNormalLaunchQA(config: NormalLaunchQAConfig, model: QuotaWakeAppModel) {
+        if let paneRaw = ProcessInfo.processInfo.environment["QUOTAWAKE_NORMAL_QA_PANE"],
+           let pane = SettingsPaneID(rawValue: paneRaw) {
+            model.selectedPane = pane
+        }
         showSettings()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in

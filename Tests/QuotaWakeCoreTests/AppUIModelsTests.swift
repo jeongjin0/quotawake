@@ -156,7 +156,7 @@ final class AppUIModelsTests: XCTestCase {
 
         XCTAssertFalse(popover.canRunNow)
         XCTAssertEqual(popover.statusTitle, "Setup needed")
-        XCTAssertEqual(popover.statusDetail, "Choose CLI paths for enabled tools.")
+        XCTAssertEqual(popover.statusDetail, "Choose CLI paths for enabled providers.")
         XCTAssertEqual(popover.statusTone, .warning)
         XCTAssertEqual(popover.toolStates.first { $0.tool == .claude }?.statusText, "Choose path")
         XCTAssertEqual(popover.toolStates.first { $0.tool == .codex }?.statusText, "Manual path invalid")
