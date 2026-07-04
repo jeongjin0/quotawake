@@ -12,7 +12,7 @@ public enum FirstRunStep: String, CaseIterable, Equatable, Sendable {
         case .welcome:
             return "Welcome"
         case .detectTools:
-            return "Detect Tools"
+            return "Detect Providers"
         case .windowReadiness:
             return "Window Readiness"
         case .testRun:

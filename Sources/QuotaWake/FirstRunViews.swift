@@ -173,7 +173,7 @@ struct FirstRunStepContentView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         FirstRunFeatureLine(
                             icon: "terminal",
-                            title: "Use your installed tools",
+                            title: "Use your installed CLIs",
                             detail: "Claude and Codex run from explicit CLI paths."
                         )
                         FirstRunFeatureLine(
@@ -236,6 +236,7 @@ struct FirstRunStepContentView: View {
                             set: { model.setupSetLaunchAtLogin($0) }
                         )
                     )
+                    .toggleStyle(.checkbox)
                     Text("Session readiness starts after login when this is enabled.")
                         .foregroundStyle(QWTheme.secondaryText)
                     Divider()
@@ -249,6 +250,7 @@ struct FirstRunStepContentView: View {
                             }
                         )
                     )
+                    .toggleStyle(.checkbox)
                     SettingsRow(
                         label: "Idle threshold",
                         value: "\(model.firstRunFlow.settings.readiness.idleThresholdSeconds) seconds"
@@ -268,7 +270,7 @@ struct FirstRunStepContentView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     Text("Send the readiness prompt now or acknowledge skipping the test.")
                         .font(.system(size: 14, weight: .semibold))
-                    Text("Live tools are used only when you press Run Test. Finish stays blocked until you either run it or acknowledge the skip.")
+                    Text("Live providers are used only when you press Run Test. Finish stays blocked until you either run it or acknowledge the skip.")
                         .foregroundStyle(QWTheme.secondaryText)
                     Button {
                         model.setupRunTest()
@@ -285,6 +287,7 @@ struct FirstRunStepContentView: View {
                             set: { model.setupSetSkipTestAcknowledged($0) }
                         )
                     )
+                    .toggleStyle(.checkbox)
                 }
                 .padding(12)
             }

@@ -110,12 +110,12 @@ Recommended sections:
    - Pause readiness.
    - Check for Updates.
    - Update available button when a newer release is found.
-2. Tools
+2. Providers
    - Claude enabled.
    - Codex enabled.
    - CLI path detection status.
    - Manual path override.
-   - Test tool.
+   - Test provider.
 3. Window Readiness
    - Background readiness on/off.
    - Active-only gate.
@@ -137,7 +137,7 @@ The first-run flow should optimize for trust, not speed.
    - Explain that QuotaWake schedules Claude/Codex session readiness.
    - State that it sends a small prompt only when local readiness checks decide
      a quota-window candidate is due.
-2. Detect Tools
+2. Detect Providers
    - Locate Claude and Codex CLI binaries.
    - Show detected paths.
    - Allow manual path selection if detection fails.

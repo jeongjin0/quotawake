@@ -73,7 +73,7 @@ struct PopoverOverviewTab: View {
             NextResetHero(state: state)
 
             if state.providerStates.isEmpty {
-                Text("No runnable tools. Check CLI paths in Settings.")
+                Text("No runnable providers. Check CLI paths in Settings.")
                     .font(.system(size: 11))
                     .foregroundStyle(QWTheme.popoverInkSecondary)
             } else {

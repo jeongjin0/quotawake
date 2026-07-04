@@ -164,7 +164,7 @@ HTTP integration.
 Automated tests and default UI QA use fake CLIs. Live Claude/Codex calls are
 opt-in release/local QA only, never default automated QA. Before a release
 candidate, run the billing-boundary smoke against the same installed official
-local CLIs selected in Settings > Tools:
+local CLIs selected in Settings > Providers:
 
 ```bash
 ./Scripts/live_cli_smoke.sh \
@@ -174,7 +174,7 @@ local CLIs selected in Settings > Tools:
 ```
 
 If more than one Codex binary exists, inspect the candidates and rerun with the
-same path selected in Settings > Tools:
+same path selected in Settings > Providers:
 
 ```bash
 which -a codex
@@ -303,7 +303,7 @@ reintroduce it without a plan that includes new tests and release gates.
 
 ## Troubleshooting
 
-- Missing CLI: open Settings > Tools, choose a manual path, then run the tool
+- Missing CLI: open Settings > Providers, choose a manual path, then run the tool
   test. GUI apps do not inherit an interactive shell PATH.
 - Node runtime missing: npm-installed CLIs with `#!/usr/bin/env node` need
   `node` in the child PATH. Fix the Node install or choose a CLI path whose

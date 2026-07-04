@@ -96,7 +96,7 @@ public enum SettingsPaneID: String, CaseIterable, Equatable, Sendable {
         case .general:
             return "General"
         case .tools:
-            return "Tools"
+            return "Providers"
         case .readiness:
             return "Window Readiness"
         case .prompt:
@@ -311,11 +311,11 @@ public enum QuotaWakeUIStateBuilder {
         isRunning: Bool
     ) -> (title: String, detail: String, tone: UIStatusTone) {
         if isRunning {
-            return ("Running", "Sending readiness prompt through enabled tools.", .info)
+            return ("Running", "Sending readiness prompt through enabled providers.", .info)
         }
 
         guard settings.firstRunCompleted else {
-            return ("Setup needed", "Choose tools and window readiness options before background runs.", .warning)
+            return ("Setup needed", "Choose providers and window readiness options before background runs.", .warning)
         }
 
         let enabledTools = toolStates.filter(\.enabled)
@@ -325,10 +325,10 @@ public enum QuotaWakeUIStateBuilder {
 
         let unresolvedTools = enabledTools.filter { $0.status != .found }
         if unresolvedTools.count == enabledTools.count {
-            return ("Setup needed", "Choose CLI paths for enabled tools.", .warning)
+            return ("Setup needed", "Choose CLI paths for enabled providers.", .warning)
         }
         if !unresolvedTools.isEmpty {
-            return ("Setup needed", "Review CLI paths for enabled tools.", .warning)
+            return ("Setup needed", "Review CLI paths for enabled providers.", .warning)
         }
 
         if !settings.background.launchAtLoginEnabled {
@@ -381,7 +381,7 @@ public enum QuotaWakeUIStateBuilder {
         case [.codex]:
             return "Codex enabled"
         default:
-            return "No tools enabled"
+            return "No providers enabled"
         }
     }
 
@@ -634,9 +634,9 @@ public enum QuotaWakeUIStateBuilder {
                 nextResetText: "Not used",
                 resetCountdownText: "Not used",
                 confidenceText: "Blocked",
-                sourceText: "Tool settings",
+                sourceText: "Provider settings",
                 detailText: "This provider is excluded from session readiness.",
-                diagnosticText: "Blocked · Tool settings",
+                diagnosticText: "Blocked · Provider settings",
                 showsDiagnosticDetail: false
             )
         }
@@ -790,7 +790,7 @@ public enum QuotaWakeUIStateBuilder {
                 status: status,
                 statusText: "Disabled",
                 pathText: pathText,
-                detailText: "This tool is excluded from session readiness.",
+                detailText: "This provider is excluded from session readiness.",
                 canTest: false
             )
         }
