@@ -33,6 +33,15 @@ private let quotaWakeBlockingWorkQueue = DispatchQueue(
     qos: .utility
 )
 
+// Display-refresh observes (popover open, Reload) get their own queue so they
+// never line up behind a 120s readiness send on the queue above — during a
+// send they return promptly (the poller's exclusive-work guard makes them a
+// no-op) instead of freezing the popover for the whole timeout.
+private let quotaWakeObserveWorkQueue = DispatchQueue(
+    label: "com.jeongjin.quotawake.observe-work",
+    qos: .userInitiated
+)
+
 @MainActor
 final class QuotaWakeAppModel: ObservableObject {
     @Published var settings: AppSettings { didSet { invalidateUIStates() } }
@@ -198,6 +207,15 @@ final class QuotaWakeAppModel: ObservableObject {
         }
     }
 
+    nonisolated private static func runObserveBlocking(_ work: @escaping () -> Void) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            quotaWakeObserveWorkQueue.async {
+                work()
+                continuation.resume()
+            }
+        }
+    }
+
     func runNow() {
         guard !isRunning else {
             return
@@ -328,7 +346,7 @@ final class QuotaWakeAppModel: ObservableObject {
     func observeQuotaIfStale(maxAgeSeconds: TimeInterval = 30) {
         let poller = self.poller
         Task {
-            await Self.runBlocking {
+            await Self.runObserveBlocking {
                 try? poller.observeIfStale(maxAgeSeconds: maxAgeSeconds, failureRetrySeconds: maxAgeSeconds)
             }
             self.refresh()
@@ -346,7 +364,7 @@ final class QuotaWakeAppModel: ObservableObject {
 
         Task {
             var message = "Observed local quota state."
-            await Self.runBlocking {
+            await Self.runObserveBlocking {
                 do {
                     try poller.observeNow()
                 } catch {

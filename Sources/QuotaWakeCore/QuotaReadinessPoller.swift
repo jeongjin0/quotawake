@@ -176,6 +176,21 @@ public final class QuotaReadinessPoller {
             ))
             try appendRunEntryIfMissing(entry)
             try updateQuotaState(from: entry)
+            // Verify the wake actually started a window: a fresh local quota
+            // read right after a successful send should show the new 5h
+            // session, which also updates the popover countdown immediately.
+            // Read-only — no provider message. Failed sends skip it; their
+            // bounded retry re-observes on its own cadence.
+            if entry.status == .sent {
+                try? observeQuotaWindow(
+                    command: command,
+                    prompt: settings.prompt,
+                    scheduledAt: currentTime,
+                    reason: .postSendVerification,
+                    previousToolLogs: toolLogs,
+                    dedupeOnOutcomeOnly: true
+                )
+            }
         case let .wait(wait):
             try appendSkipIfUseful(
                 wait,
@@ -200,6 +215,14 @@ public final class QuotaReadinessPoller {
     }
 
     public func observeNow() throws {
+        // Manual Reload runs on its own queue; skip instead of racing a tick
+        // or send that is mid-flight — the caller's refresh still shows the
+        // latest on-disk state.
+        guard beginExclusiveWork() else {
+            return
+        }
+        defer { endExclusiveWork() }
+
         let settings = try settingsStore.load()
         let commands = commandsProvider()
         let scheduledAt = now()
@@ -367,36 +390,66 @@ public final class QuotaReadinessPoller {
         try quotaStateStore.save(mergedDisplayState(parsed: state))
     }
 
-    // A signal-less result — a readiness send's "Hi!" output, or a failed or
-    // blocked observation probe — would clobber the richer observed window
-    // shown in the popover, blanking the reset countdown until the next
-    // successful probe. Keep the fresh classification/summary/observedAt but
-    // carry the previous observation's quota display fields forward. When the
-    // result did contain quota signals (reset time, percentages), it wins
-    // as-is.
+    // A signal-less result — a readiness send's "Hi!" output, a failed probe,
+    // or the idle-provider `/usage` output after a window expired (0% used,
+    // no session, no resets clause) — would clobber the richer observed
+    // window shown in the popover, blanking the reset countdown until the
+    // next successful probe. Keep the fresh summary/observedAt but carry the
+    // previous observation's quota display fields forward. When the result
+    // did contain quota signals (reset time, percentages), it wins as-is.
+    //
+    // Classification is also retained when the previous state held a
+    // limitReached reset candidate and the fresh result is merely
+    // uninformative (sent/unavailable/failed): otherwise the idle-provider
+    // output that appears right after a reset passes would erase the due
+    // candidate before the engine consumed it, and the wake would never
+    // fire. Blocked classifications (auth, billing env) are real signals and
+    // always win. Idempotency makes retaining a consumed candidate harmless.
     private func mergedDisplayState(parsed: QuotaWindowState) -> QuotaWindowState {
-        guard parsed.resetAt == nil,
-              parsed.usedPercent == nil,
-              parsed.weeklyUsedPercent == nil,
-              let previous = (try? quotaStateStore.load(tool: parsed.tool)) ?? nil,
-              previous.resetAt != nil || previous.usedPercent != nil || previous.weeklyUsedPercent != nil
-        else {
+        guard let previous = (try? quotaStateStore.load(tool: parsed.tool)) ?? nil else {
             return parsed
         }
+        // Retain a limitReached reset candidate across uninformative results.
+        // This covers both shapes of the idle provider output: fully
+        // signal-less text, and the fresh-session "0% used" line without a
+        // resets clause (usedPercent parses but no reset time does). Blocked
+        // classifications and a newly parsed reset are real signals and win.
+        let retainsCandidate: Bool
+        if case .limitReached = previous.classification {
+            switch parsed.classification {
+            case .sent, .quotaUnavailable, .unknownFailure:
+                retainsCandidate = true
+            case .limitReached, .authRequired, .apiBillingEnvPresent, .usageLimitNoReset:
+                retainsCandidate = false
+            }
+        } else {
+            retainsCandidate = false
+        }
+        let parsedHasDisplaySignals = parsed.resetAt != nil || parsed.usedPercent != nil || parsed.weeklyUsedPercent != nil
+        guard retainsCandidate || !parsedHasDisplaySignals else {
+            return parsed
+        }
+        guard retainsCandidate || previous.resetAt != nil || previous.usedPercent != nil || previous.weeklyUsedPercent != nil else {
+            return parsed
+        }
+        // Field-wise: fresh values win where the result produced them, the
+        // previous observation fills the gaps so the popover never blanks.
+        let hasFreshSession = parsed.usedPercent != nil
+        let hasFreshWeekly = parsed.weeklyUsedPercent != nil
         return QuotaWindowState(
             tool: parsed.tool,
-            source: parsed.source,
-            confidence: parsed.confidence,
-            classification: parsed.classification,
+            source: retainsCandidate ? previous.source : parsed.source,
+            confidence: retainsCandidate ? previous.confidence : parsed.confidence,
+            classification: retainsCandidate ? previous.classification : parsed.classification,
             observedAt: parsed.observedAt,
-            resetAt: previous.resetAt,
-            usedPercent: previous.usedPercent,
-            remainingPercent: previous.remainingPercent,
-            windowLabel: previous.windowLabel,
-            weeklyUsedPercent: previous.weeklyUsedPercent,
-            weeklyRemainingPercent: previous.weeklyRemainingPercent,
-            weeklyResetAt: previous.weeklyResetAt,
-            weeklyWindowLabel: previous.weeklyWindowLabel,
+            resetAt: parsed.resetAt ?? previous.resetAt,
+            usedPercent: hasFreshSession ? parsed.usedPercent : previous.usedPercent,
+            remainingPercent: hasFreshSession ? parsed.remainingPercent : previous.remainingPercent,
+            windowLabel: hasFreshSession ? (parsed.windowLabel ?? previous.windowLabel) : previous.windowLabel,
+            weeklyUsedPercent: hasFreshWeekly ? parsed.weeklyUsedPercent : previous.weeklyUsedPercent,
+            weeklyRemainingPercent: hasFreshWeekly ? parsed.weeklyRemainingPercent : previous.weeklyRemainingPercent,
+            weeklyResetAt: hasFreshWeekly ? parsed.weeklyResetAt : previous.weeklyResetAt,
+            weeklyWindowLabel: hasFreshWeekly ? parsed.weeklyWindowLabel : previous.weeklyWindowLabel,
             summary: parsed.summary
         )
     }
@@ -514,6 +567,8 @@ public final class QuotaReadinessPoller {
             return "invalid_quota_state"
         case .staleProviderState:
             return "stale_provider_state"
+        case .postSendVerification:
+            return "post_send_verification"
         }
     }
 

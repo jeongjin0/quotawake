@@ -53,6 +53,57 @@ final class QuotaWindowParserTests: XCTestCase {
         XCTAssertEqual(state.weeklyResetAt, try XCTUnwrap(Self.iso.date(from: "2026-07-08T09:59:00Z")))
     }
 
+    // Right after a reset with an active session, the panel shows 0% used
+    // with a resets clause — must parse exactly like any other percentage.
+    func testParsesZeroPercentSessionWithResetClause() throws {
+        let observedAt = try XCTUnwrap(Self.iso.date(from: "2026-07-02T04:00:00Z"))
+        let state = QuotaWindowParser.parse(
+            tool: .claude,
+            source: .claudeUsageProbe,
+            stdout: "Current session: 0% used · resets Jul 2 at 4:10pm (Asia/Seoul)",
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+            observedAt: observedAt
+        )
+
+        XCTAssertEqual(state.confidence, .observedLocalQuota)
+        XCTAssertEqual(state.usedPercent, 0)
+        XCTAssertEqual(state.classification, .limitReached(resetAt: try XCTUnwrap(Self.iso.date(from: "2026-07-02T07:10:00Z"))))
+    }
+
+    // The idle shapes of the panel (no window running): a session line with
+    // no resets clause, or no session line at all. Both must degrade to a
+    // signal-less `.sent` classification — the poller's merge then retains a
+    // previously observed reset candidate instead of erasing it.
+    func testIdleUsagePanelShapesYieldSentClassificationWithoutReset() throws {
+        let observedAt = try XCTUnwrap(Self.iso.date(from: "2026-07-02T04:00:00Z"))
+        let zeroWithoutResets = QuotaWindowParser.parse(
+            tool: .claude,
+            source: .claudeUsageProbe,
+            stdout: "Current session: 0% used",
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+            observedAt: observedAt
+        )
+        XCTAssertEqual(zeroWithoutResets.classification, .sent)
+        XCTAssertNil(zeroWithoutResets.resetAt)
+        XCTAssertEqual(zeroWithoutResets.usedPercent, 0)
+
+        let weeklyOnly = QuotaWindowParser.parse(
+            tool: .claude,
+            source: .claudeUsageProbe,
+            stdout: "Current week (all models): 18% used · resets Jul 8 at 6:59pm (Asia/Seoul)",
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+            observedAt: observedAt
+        )
+        XCTAssertEqual(weeklyOnly.classification, .sent)
+        XCTAssertNil(weeklyOnly.resetAt)
+    }
+
     func testRelativeResetAnchorsToResetPhraseNotFirstDurationInText() throws {
         let state = QuotaWindowParser.parse(
             tool: .claude,

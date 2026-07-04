@@ -3,7 +3,11 @@ import Foundation
 /// Streams a child process pipe into a size-capped buffer without blocking the
 /// child on a full pipe: the readability handler keeps draining even after the
 /// cap is hit, and `stop()` collects any remainder once the process has exited.
-/// `stop()` must only be called after `waitUntilExit()` — it reads to EOF.
+/// `stop()` must only be called after `waitUntilExit()`. The final drain is
+/// deadline-bounded: a grandchild that escaped process-tree termination (or a
+/// backgrounded descendant of a zero-exit run) can keep the write end open
+/// past the direct child's exit, and an unbounded read-to-EOF here would hang
+/// the caller until that stray process dies.
 final class BoundedPipeCollector {
     let pipe = Pipe()
 
@@ -25,13 +29,20 @@ final class BoundedPipeCollector {
         }
     }
 
-    func stop() {
-        pipe.fileHandleForReading.readabilityHandler = nil
+    func stop(drainDeadlineSeconds: TimeInterval = 2.0) {
         try? pipe.fileHandleForWriting.close()
-        let remainder = pipe.fileHandleForReading.readDataToEndOfFile()
-        if !remainder.isEmpty {
-            append(remainder)
+        let reachedEOF = DispatchSemaphore(value: 0)
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                handle.readabilityHandler = nil
+                reachedEOF.signal()
+            } else {
+                self?.append(chunk)
+            }
         }
+        _ = reachedEOF.wait(timeout: .now() + drainDeadlineSeconds)
+        pipe.fileHandleForReading.readabilityHandler = nil
         try? pipe.fileHandleForReading.close()
     }
 

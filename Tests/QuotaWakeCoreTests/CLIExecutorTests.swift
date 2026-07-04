@@ -153,6 +153,41 @@ final class CLIExecutorTests: XCTestCase {
         XCTAssertEqual(entry.errorSummary, "CLI exited 0 but reported authentication is required")
     }
 
+    func testStrayBackgroundGrandchildDoesNotHangOutputDrain() throws {
+        let fixture = try makeFixture()
+        // The backgrounded sleep inherits stdout/stderr and keeps the pipes
+        // open long after the direct child exits 0; the final drain must be
+        // deadline-bounded instead of blocking until the stray process dies.
+        let executable = try makeFakeExecutable(
+            name: "claude",
+            in: fixture.binDirectory,
+            captureDirectory: fixture.captureDirectory,
+            body: "sleep 30 &\nprintf 'ok\\n'\nexit 0\n"
+        )
+        let runner = ToolRunner(logStore: fixture.logStore)
+
+        let startedAt = Date()
+        let entry = try runner.run(makeRequest(
+            tool: .claude,
+            executableURL: executable,
+            fixture: fixture,
+            timeoutSeconds: 5
+        ))
+
+        XCTAssertEqual(entry.status, .sent)
+        XCTAssertTrue(entry.stdoutSummary.contains("ok"))
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 15, "pipe drain must not wait for the escaped grandchild")
+    }
+
+    func testPromptBeginningWithDashIsPassedAsTextNotFlag() {
+        let template = CLICommandTemplate()
+        let runDirectory = URL(fileURLWithPath: "/tmp/run", isDirectory: true)
+
+        XCTAssertEqual(template.arguments(for: .claude, prompt: "--help", runDirectory: runDirectory).last, " --help")
+        XCTAssertEqual(template.arguments(for: .codex, prompt: "-v", runDirectory: runDirectory).last, " -v")
+        XCTAssertEqual(template.arguments(for: .claude, prompt: "hi", runDirectory: runDirectory).last, "hi")
+    }
+
     func testTimeoutTerminatesProcessAndLogsTimedOut() throws {
         let fixture = try makeFixture()
         let executable = try makeFakeExecutable(

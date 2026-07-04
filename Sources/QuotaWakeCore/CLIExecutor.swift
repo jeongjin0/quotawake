@@ -12,6 +12,11 @@ public struct CLICommandTemplate: Equatable, Sendable {
     public init() {}
 
     public func arguments(for tool: ToolKind, prompt: String, runDirectory: URL) -> [String] {
+        // A user prompt beginning with "-" would be parsed by the CLI as a
+        // flag, silently turning the readiness send into a no-op (or worse,
+        // an unintended option). A leading space keeps the text intact while
+        // making the argument unambiguous.
+        let safePrompt = prompt.hasPrefix("-") ? " " + prompt : prompt
         switch tool {
         case .claude:
             return [
@@ -19,7 +24,7 @@ public struct CLICommandTemplate: Equatable, Sendable {
                 "--output-format",
                 "text",
                 "--no-session-persistence",
-                prompt
+                safePrompt
             ]
         case .codex:
             return [
@@ -33,7 +38,7 @@ public struct CLICommandTemplate: Equatable, Sendable {
                 "never",
                 "-C",
                 runDirectory.path,
-                prompt
+                safePrompt
             ]
         }
     }

@@ -144,7 +144,11 @@ final class ObserveIfStaleTests: XCTestCase {
 
         XCTAssertEqual(observer.observeCount, 1)
         let state = try XCTUnwrap(fixture.quotaStateStore.load(tool: .codex))
-        XCTAssertEqual(state.classification, .unknownFailure, "Fresh observation outcome must win")
+        XCTAssertEqual(
+            state.classification,
+            .limitReached(resetAt: observedReset),
+            "A failed probe must not erase the observed reset candidate"
+        )
         XCTAssertEqual(state.observedAt, Self.now)
         XCTAssertEqual(state.resetAt, observedReset, "A failed probe must not blank the displayed reset countdown")
         XCTAssertEqual(state.usedPercent, 47)
@@ -240,6 +244,92 @@ final class ObserveIfStaleTests: XCTestCase {
         XCTAssertEqual(observer.observeCount, 3)
         let observeLogs = try fixture.logStore.readAll().filter { $0.eventId.hasPrefix("quota-observe-") }
         XCTAssertEqual(observeLogs.count, 1, "Same-outcome observations must not append a log row per pass even when the summary moves")
+    }
+
+    // The provider's idle output right after a reset passes (exit 0, "0%
+    // used", no session/resets clause) parses as a signal-less state. That
+    // must not erase a due limitReached candidate before the engine consumed
+    // it, or the wake would never fire for that window.
+    func testSignalLessObservationRetainsDueResetCandidate() throws {
+        let fixture = try makeFixture()
+        try saveEnabledCodexOnlySettings(fixture)
+        let resetAt = Self.now.addingTimeInterval(-30)
+        try fixture.quotaStateStore.save(QuotaWindowState(
+            tool: .codex,
+            source: .codexLocalAppServer,
+            confidence: .observedLocalQuota,
+            classification: .limitReached(resetAt: resetAt),
+            observedAt: Self.now.addingTimeInterval(-120),
+            resetAt: resetAt,
+            usedPercent: 12,
+            remainingPercent: 88,
+            summary: "window observed before reset"
+        ))
+
+        let observer = StubQuotaObserver(tool: .codex)
+        let poller = makePoller(fixture: fixture, runner: RecordingToolRunner(), observer: observer, now: { Self.now })
+
+        try poller.observeIfStale(maxAgeSeconds: 55)
+
+        XCTAssertEqual(observer.observeCount, 1)
+        let state = try XCTUnwrap(fixture.quotaStateStore.load(tool: .codex))
+        XCTAssertEqual(state.classification, .limitReached(resetAt: resetAt), "A signal-less probe must not erase a due reset candidate")
+        XCTAssertEqual(state.confidence, .observedLocalQuota)
+        XCTAssertEqual(state.resetAt, resetAt)
+        XCTAssertEqual(state.observedAt, Self.now, "The fresh observation time must still be recorded")
+    }
+
+    // The other idle-provider shape: "Current session: 0% used" with no
+    // resets clause parses with a usage signal but a .sent classification.
+    // The fresh 0% must show, while the due reset candidate is still kept.
+    func testFreshZeroPercentWithoutResetKeepsCandidateButShowsFreshUsage() throws {
+        let fixture = try makeFixture()
+        try saveEnabledCodexOnlySettings(fixture)
+        let resetAt = Self.now.addingTimeInterval(-30)
+        try fixture.quotaStateStore.save(QuotaWindowState(
+            tool: .codex,
+            source: .codexLocalAppServer,
+            confidence: .observedLocalQuota,
+            classification: .limitReached(resetAt: resetAt),
+            observedAt: Self.now.addingTimeInterval(-120),
+            resetAt: resetAt,
+            usedPercent: 97,
+            summary: "window observed before reset"
+        ))
+
+        let observer = StubQuotaObserver(tool: .codex, usedPercent: 0)
+        let poller = makePoller(fixture: fixture, runner: RecordingToolRunner(), observer: observer, now: { Self.now })
+
+        try poller.observeIfStale(maxAgeSeconds: 55)
+
+        let state = try XCTUnwrap(fixture.quotaStateStore.load(tool: .codex))
+        XCTAssertEqual(state.classification, .limitReached(resetAt: resetAt))
+        XCTAssertEqual(state.usedPercent, 0, "Fresh usage percent must win over the stale one")
+        XCTAssertEqual(state.resetAt, resetAt, "The reset candidate must remain visible")
+    }
+
+    func testSignalLessBlockedObservationReplacesResetCandidate() throws {
+        let fixture = try makeFixture()
+        try saveEnabledCodexOnlySettings(fixture)
+        let resetAt = Self.now.addingTimeInterval(-30)
+        try fixture.quotaStateStore.save(QuotaWindowState(
+            tool: .codex,
+            source: .codexLocalAppServer,
+            confidence: .observedLocalQuota,
+            classification: .limitReached(resetAt: resetAt),
+            observedAt: Self.now.addingTimeInterval(-120),
+            resetAt: resetAt,
+            usedPercent: 12,
+            summary: "window observed before reset"
+        ))
+
+        let observer = StubQuotaObserver(tool: .codex, classification: .authRequired)
+        let poller = makePoller(fixture: fixture, runner: RecordingToolRunner(), observer: observer, now: { Self.now })
+
+        try poller.observeIfStale(maxAgeSeconds: 55)
+
+        let state = try XCTUnwrap(fixture.quotaStateStore.load(tool: .codex))
+        XCTAssertEqual(state.classification, .authRequired, "A real blocked signal must win over a retained candidate")
     }
 
     func testObserveIfStaleNeverInvokesProviderRunner() throws {
@@ -352,16 +442,19 @@ private final class RecordingToolRunner: ToolRunning {
 private final class StubQuotaObserver: QuotaWindowObserving {
     private let tool: ToolKind
     private let classification: QuotaSourceClassification
+    private let usedPercent: Double?
     private let summaryProvider: (Int) -> String
     private(set) var observeCount = 0
 
     init(
         tool: ToolKind,
         classification: QuotaSourceClassification = .sent,
+        usedPercent: Double? = nil,
         summaryProvider: @escaping (Int) -> String = { _ in "quota window observed" }
     ) {
         self.tool = tool
         self.classification = classification
+        self.usedPercent = usedPercent
         self.summaryProvider = summaryProvider
     }
 
@@ -380,6 +473,7 @@ private final class StubQuotaObserver: QuotaWindowObserving {
             confidence: failed ? .unknown : .observedLocalQuota,
             classification: classification,
             observedAt: observedAt,
+            usedPercent: usedPercent,
             summary: summaryProvider(observeCount)
         )
     }
