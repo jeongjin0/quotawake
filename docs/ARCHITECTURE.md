@@ -26,7 +26,10 @@ build/QA commands live in `DEVELOPMENT.md`.
    │         ├─ QuotaReadinessEngine.evaluate(input) ──▶ send / wait / observeNeeded
    │         ├─ send:    ToolRunner.run() ──▶ CLIExecutor (timeout, env scrub,
    │         │           overlap guard, ProcessTreeTerminator) ──▶ RunLogStore
-   │         │           └─ QuotaWindowParser.parse(output) ──▶ QuotaWindowStateStore
+   │         │           ├─ QuotaWindowParser.parse(output) ──▶ QuotaWindowStateStore
+   │         │           └─ successful sends: one immediate post-send
+   │         │             verification observe (unthrottled; read-only) so
+   │         │             the freshly started window is stored right away
    │         ├─ wait:    transition-deduped skip entry ──▶ RunLogStore
    │         └─ observe: (readiness path; throttled to one probe / tool / 10 min)
    │                     CodexQuotaAdapter (codex app-server JSON-RPC) or
@@ -41,22 +44,35 @@ build/QA commands live in `DEVELOPMENT.md`.
         with a 30-second threshold and a matching failure-retry override, so a
         failed probe heals on the next open instead of waiting out the backoff.
         Its log entries dedupe on outcome only, so a moving usage percent does
-        not append a row per pass. A signal-less result (failed/blocked probe,
-        or a send whose output carries no quota fields) keeps its fresh
-        classification/summary/observedAt but carries the previous
-        observation's display fields (reset countdown, percentages) forward,
-        so the popover never blanks to Unknown while data is merely stale.
+        not append a row per pass. State merge: fresh quota fields win
+        field-wise and the previous observation fills the gaps, so the popover
+        never blanks to Unknown while data is merely stale. An uninformative
+        result (a send's reply text, a failed probe, or the idle post-reset
+        panel — including its "0% used, no resets clause" shape) additionally
+        retains a previous unconsumed limitReached reset candidate so the due
+        wake cannot be erased before the engine consumes it; once a successful
+        send lands at/after that reset the candidate is consumed and the fresh
+        classification wins (which is what lets the estimated-5h chain resume).
+        Blocked classifications (auth, billing env) always win.
 ```
+
+The 60-second loop's `Task.sleep` pauses while the Mac sleeps, so
+`QuotaWakeAppModel` also listens for `NSWorkspace.didWakeNotification` and runs
+one immediate catch-up pass (tick + stale observe) on system wake instead of
+waiting for the next post-wake tick.
 
 ## Decision engine
 
 `QuotaReadinessEngine` is pure (no I/O). Source hierarchy: observed local
 quota → exact observed reset → estimated 5-hour candidate (only when
 estimation is enabled) → unknown (strict mode observes instead of sending).
-Gates, in order: candidate due → activity gate → idempotency (persisted via
-run logs, so relaunches cannot double-send) → cooldown. Blocked/unavailable
-states older than ~15 minutes yield `observeNeeded(.staleProviderState)` so a
-one-time failure self-heals.
+Gates, in order: candidate due → activity gate → idempotency (successful sends
+only, persisted via run logs, so relaunches cannot double-send) → bounded
+failure retry (a failed/timed-out send retries after a 10-minute backoff, at
+most 3 attempts per reset window) → cooldown (keyed to the last provider
+attempt of any outcome, so attempts on different reset candidates stay
+spaced). Blocked/unavailable states older than ~15 minutes yield
+`observeNeeded(.staleProviderState)` so a one-time failure self-heals.
 
 ## Core files (active)
 
@@ -96,6 +112,11 @@ like it.
   (`CLIChildEnvironmentPolicy`); `live_cli_smoke.sh` mirrors the same key list.
 - Everything written to disk passes a sanitizer (`RunLogSanitizer`,
   `QuotaWindowSanitizer`) first.
-- Failed/timed-out sends count as attempts for idempotency: one attempt per
-  reset window, no automatic retry (pinned by
-  `testFailedAndTimedOutResetWindowAttemptsPreventImmediateRetry`).
+- Failed/timed-out sends retry with a bounded backoff instead of burning the
+  reset window: no immediate retry (10-minute backoff, pinned by
+  `testFailedAndTimedOutResetWindowAttemptsPreventImmediateRetry`), retry
+  allowed after the backoff (`testFailedSendRetriesAfterBackoffElapses`), and
+  a hard cap of 3 attempts per reset window
+  (`testExhaustedSendAttemptsStopRetrying`). A send that exits 0 while its
+  output reports a usage limit or login prompt is graded `.failed`, not
+  `.sent`, so it cannot complete the window or anchor the 5h estimate.

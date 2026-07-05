@@ -12,6 +12,11 @@ public struct CLICommandTemplate: Equatable, Sendable {
     public init() {}
 
     public func arguments(for tool: ToolKind, prompt: String, runDirectory: URL) -> [String] {
+        // A user prompt beginning with "-" would be parsed by the CLI as a
+        // flag, silently turning the readiness send into a no-op (or worse,
+        // an unintended option). A leading space keeps the text intact while
+        // making the argument unambiguous.
+        let safePrompt = prompt.hasPrefix("-") ? " " + prompt : prompt
         switch tool {
         case .claude:
             return [
@@ -19,7 +24,7 @@ public struct CLICommandTemplate: Equatable, Sendable {
                 "--output-format",
                 "text",
                 "--no-session-persistence",
-                prompt
+                safePrompt
             ]
         case .codex:
             return [
@@ -33,7 +38,7 @@ public struct CLICommandTemplate: Equatable, Sendable {
                 "never",
                 "-C",
                 runDirectory.path,
-                prompt
+                safePrompt
             ]
         }
     }
@@ -379,7 +384,7 @@ public final class ToolRunner {
 
         do {
             let result = try executor.run(executionRequest)
-            let status = Self.status(for: result)
+            let graded = Self.gradedStatus(for: result, tool: command.tool)
             let entry = RunLogEntry(
                 eventId: request.eventId,
                 scheduledAt: request.scheduledAt,
@@ -387,14 +392,14 @@ public final class ToolRunner {
                 endedAt: result.endedAt,
                 tool: command.tool,
                 commandPath: executableURL.path,
-                status: status,
+                status: graded.status,
                 exitCode: result.exitCode,
                 durationMs: result.durationMs,
                 timedOut: result.timedOut,
                 stdoutSummary: result.stdout,
                 stderrSummary: result.stderr,
                 prompt: request.prompt,
-                errorSummary: status == .failed ? "CLI exited with code \(result.exitCode ?? -1)" : nil,
+                errorSummary: graded.errorSummary,
                 decisionSource: request.decisionSource,
                 quotaConfidence: request.quotaConfidence
             )
@@ -431,11 +436,53 @@ public final class ToolRunner {
         try logStore.append(entry)
     }
 
-    private static func status(for result: CLIExecutionResult) -> RunStatus {
+    private static func gradedStatus(
+        for result: CLIExecutionResult,
+        tool: ToolKind
+    ) -> (status: RunStatus, errorSummary: String?) {
         if result.timedOut {
-            return .timedOut
+            return (.timedOut, nil)
         }
-        return result.exitCode == 0 ? .sent : .failed
+        guard result.exitCode == 0 else {
+            return (.failed, "CLI exited with code \(result.exitCode ?? -1)")
+        }
+        // Some CLIs exit 0 while reporting they could not serve the prompt
+        // (usage limit banner, login prompt). Recording those as sent would
+        // mark the reset window completed and anchor the next 5h estimate on
+        // a send that never started a window.
+        let parsed = QuotaWindowParser.parse(
+            tool: tool,
+            source: .cliMessageParser,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            exitCode: result.exitCode,
+            timedOut: result.timedOut,
+            observedAt: result.endedAt
+        )
+        // Keyword-level classification alone is too weak to overturn a
+        // delivered reply: a custom prompt's answer can legitimately contain
+        // "rate limit", "try again", or "resets in 3 hours". Demoting such a
+        // send would trigger the bounded retry and burn real quota, so limit
+        // demotions additionally require an explicit banner phrase.
+        let explicitBanner = QuotaWindowParser.containsExplicitLimitBanner(result.stdout + "\n" + result.stderr)
+        switch parsed.classification {
+        case .limitReached:
+            if explicitBanner {
+                return (.failed, "CLI exited 0 but reported a usage limit; not counting as a sent readiness prompt")
+            }
+            return (.sent, nil)
+        case .authRequired:
+            return (.failed, "CLI exited 0 but reported authentication is required")
+        case .usageLimitNoReset:
+            if explicitBanner {
+                return (.failed, "CLI exited 0 but reported a usage limit without a reset time")
+            }
+            return (.sent, nil)
+        case .apiBillingEnvPresent:
+            return (.failed, "CLI exited 0 but reported an API billing key environment")
+        case .sent, .quotaUnavailable, .unknownFailure:
+            return (.sent, nil)
+        }
     }
 }
 

@@ -10,6 +10,7 @@ public struct QuotaReadinessInput: Equatable, Sendable {
     public let lastSuccessAt: Date?
     public let lastSentAt: Date?
     public let completedResetWindowEventIds: Set<String>
+    public let failedSendAttempts: [String: QuotaSendAttemptHistory]
 
     public init(
         tool: ToolKind,
@@ -20,7 +21,8 @@ public struct QuotaReadinessInput: Equatable, Sendable {
         now: Date,
         lastSuccessAt: Date? = nil,
         lastSentAt: Date? = nil,
-        completedResetWindowEventIds: Set<String> = []
+        completedResetWindowEventIds: Set<String> = [],
+        failedSendAttempts: [String: QuotaSendAttemptHistory] = [:]
     ) {
         self.tool = tool
         self.toolSettings = toolSettings
@@ -31,6 +33,19 @@ public struct QuotaReadinessInput: Equatable, Sendable {
         self.lastSuccessAt = lastSuccessAt
         self.lastSentAt = lastSentAt
         self.completedResetWindowEventIds = completedResetWindowEventIds
+        self.failedSendAttempts = failedSendAttempts
+    }
+}
+
+/// Failed/timed-out send attempts for one reset-window event, so a transient
+/// error can retry with backoff instead of burning the whole 5h window.
+public struct QuotaSendAttemptHistory: Equatable, Sendable {
+    public let count: Int
+    public let lastAttemptAt: Date
+
+    public init(count: Int, lastAttemptAt: Date) {
+        self.count = count
+        self.lastAttemptAt = lastAttemptAt
     }
 }
 
@@ -99,6 +114,8 @@ public enum QuotaReadinessSkipReason: Equatable, Sendable {
     case quotaUnavailable
     case duplicateResetWindow
     case cooldown(until: Date)
+    case sendRetryBackoff(until: Date)
+    case sendAttemptsExhausted
 }
 
 public enum QuotaReadinessObserveReason: Equatable, Sendable {
@@ -106,6 +123,7 @@ public enum QuotaReadinessObserveReason: Equatable, Sendable {
     case missingLastSuccessForEstimate
     case invalidQuotaState
     case staleProviderState
+    case postSendVerification
 }
 
 public enum QuotaReadinessDecisionSource: String, Codable, Equatable, Sendable {

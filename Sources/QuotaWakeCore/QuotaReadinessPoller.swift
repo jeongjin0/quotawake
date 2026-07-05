@@ -41,7 +41,7 @@ public final class QuotaReadinessPoller {
     // unavailable or unparseable output), so a broken local quota source does
     // not spawn a probe subprocess on every 60-second display refresh.
     private let failureRetryIntervalSeconds: TimeInterval
-    private let lock = NSLock()
+    private let lock = NSCondition()
     private var workRunning = false
 
     public init(
@@ -75,6 +75,9 @@ public final class QuotaReadinessPoller {
     }
 
     public func sendNow() throws {
+        beginExclusiveWorkBlocking()
+        defer { endExclusiveWork() }
+
         let settings = try settingsStore.load()
         let commands = commandsProvider()
         let scheduledAt = now()
@@ -96,9 +99,7 @@ public final class QuotaReadinessPoller {
     }
 
     public func tick() throws {
-        guard beginExclusiveWork() else {
-            return
-        }
+        beginExclusiveWorkBlocking()
         defer { endExclusiveWork() }
 
         let settings = try settingsStore.load()
@@ -115,7 +116,10 @@ public final class QuotaReadinessPoller {
         let commands = commandsProvider()
         let logs = try logStore.readAll()
         let activity = (activityEvaluator ?? activityEvaluatorProvider(settings.readiness)).evaluate()
-        let completedEventIds = Set(logs.filter { providerWasInvoked(status: $0.status) }.map(\.eventId))
+        // Only successful sends complete a reset window; failed/timed-out
+        // attempts feed the engine's bounded retry (backoff + attempt cap)
+        // instead of permanently burning the window.
+        let completedEventIds = Set(logs.filter { $0.status == .sent }.map(\.eventId))
 
         for command in commands where settings.tools[command.tool].enabled {
             do {
@@ -154,8 +158,12 @@ public final class QuotaReadinessPoller {
             readiness: settings.readiness,
             now: currentTime,
             lastSuccessAt: lastSuccessAt(in: toolLogs),
+            // Cooldown spaces provider invocations regardless of outcome, so a
+            // failed attempt on one reset candidate cannot be followed one
+            // minute later by a send for a freshly observed different one.
             lastSentAt: lastProviderAttemptAt(in: toolLogs),
-            completedResetWindowEventIds: completedEventIds
+            completedResetWindowEventIds: completedEventIds,
+            failedSendAttempts: failedSendAttempts(in: toolLogs)
         ))
 
         switch decision {
@@ -172,6 +180,21 @@ public final class QuotaReadinessPoller {
             ))
             try appendRunEntryIfMissing(entry)
             try updateQuotaState(from: entry)
+            // Verify the wake actually started a window: a fresh local quota
+            // read right after a successful send should show the new 5h
+            // session, which also updates the popover countdown immediately.
+            // Read-only — no provider message. Failed sends skip it; their
+            // bounded retry re-observes on its own cadence.
+            if entry.status == .sent {
+                try? observeQuotaWindow(
+                    command: command,
+                    prompt: settings.prompt,
+                    scheduledAt: currentTime,
+                    reason: .postSendVerification,
+                    previousToolLogs: toolLogs,
+                    dedupeOnOutcomeOnly: true
+                )
+            }
         case let .wait(wait):
             try appendSkipIfUseful(
                 wait,
@@ -195,7 +218,19 @@ public final class QuotaReadinessPoller {
         }
     }
 
-    public func observeNow() throws {
+    // Returns false when the observe was skipped because a tick or send was
+    // mid-flight, so the caller can report honestly instead of claiming a
+    // fresh observation happened.
+    @discardableResult
+    public func observeNow() throws -> Bool {
+        // Manual Reload runs on its own queue; skip instead of racing a tick
+        // or send that is mid-flight — the caller's refresh still shows the
+        // latest on-disk state.
+        guard beginExclusiveWork() else {
+            return false
+        }
+        defer { endExclusiveWork() }
+
         let settings = try settingsStore.load()
         let commands = commandsProvider()
         let scheduledAt = now()
@@ -209,6 +244,7 @@ public final class QuotaReadinessPoller {
                 previousToolLogs: []
             )
         }
+        return true
     }
 
     // Display-freshness observe: re-probes local quota sources for enabled
@@ -272,6 +308,7 @@ public final class QuotaReadinessPoller {
         }
     }
 
+    // Display observes try-and-skip: showing the last on-disk state is fine.
     private func beginExclusiveWork() -> Bool {
         lock.lock()
         defer { lock.unlock() }
@@ -282,9 +319,23 @@ public final class QuotaReadinessPoller {
         return true
     }
 
+    // Ticks and sends must not be silently dropped when a short display
+    // observe on the other queue holds the flag — a due wake would slip a
+    // full poll interval. They wait for the flag instead (observes are
+    // bounded by their probe timeouts, so the wait is seconds at most).
+    private func beginExclusiveWorkBlocking() {
+        lock.lock()
+        while workRunning {
+            lock.wait()
+        }
+        workRunning = true
+        lock.unlock()
+    }
+
     private func endExclusiveWork() {
         lock.lock()
         workRunning = false
+        lock.broadcast()
         lock.unlock()
     }
 
@@ -363,36 +414,76 @@ public final class QuotaReadinessPoller {
         try quotaStateStore.save(mergedDisplayState(parsed: state))
     }
 
-    // A signal-less result — a readiness send's "Hi!" output, or a failed or
-    // blocked observation probe — would clobber the richer observed window
-    // shown in the popover, blanking the reset countdown until the next
-    // successful probe. Keep the fresh classification/summary/observedAt but
-    // carry the previous observation's quota display fields forward. When the
-    // result did contain quota signals (reset time, percentages), it wins
-    // as-is.
+    // A signal-less result — a readiness send's "Hi!" output, a failed probe,
+    // or the idle-provider `/usage` output after a window expired (0% used,
+    // no session, no resets clause) — would clobber the richer observed
+    // window shown in the popover, blanking the reset countdown until the
+    // next successful probe. Keep the fresh summary/observedAt but carry the
+    // previous observation's quota display fields forward. When the result
+    // did contain quota signals (reset time, percentages), it wins as-is.
+    //
+    // Classification is also retained when the previous state held a
+    // limitReached reset candidate and the fresh result is merely
+    // uninformative (sent/unavailable/failed): otherwise the idle-provider
+    // output that appears right after a reset passes would erase the due
+    // candidate before the engine consumed it, and the wake would never
+    // fire. Blocked classifications (auth, billing env) are real signals and
+    // always win. Idempotency makes retaining a consumed candidate harmless.
     private func mergedDisplayState(parsed: QuotaWindowState) -> QuotaWindowState {
-        guard parsed.resetAt == nil,
-              parsed.usedPercent == nil,
-              parsed.weeklyUsedPercent == nil,
-              let previous = (try? quotaStateStore.load(tool: parsed.tool)) ?? nil,
-              previous.resetAt != nil || previous.usedPercent != nil || previous.weeklyUsedPercent != nil
-        else {
+        guard let previous = (try? quotaStateStore.load(tool: parsed.tool)) ?? nil else {
             return parsed
         }
+        // Retain a limitReached reset candidate across uninformative results.
+        // This covers both shapes of the idle provider output: fully
+        // signal-less text, and the fresh-session "0% used" line without a
+        // resets clause (usedPercent parses but no reset time does). Blocked
+        // classifications and a newly parsed reset are real signals and win.
+        // A candidate whose reset was already answered by a successful send
+        // (scheduled or manual "Run now") is consumed: retaining it would
+        // shadow the estimated-5h fallback forever, and — for manual sends,
+        // which log their own event id — re-arm an automatic duplicate send.
+        let retainsCandidate: Bool
+        if case let .limitReached(classificationResetAt) = previous.classification {
+            let candidateResetAt = previous.resetAt ?? classificationResetAt
+            let consumed = lastToolSuccessAt(previous.tool).map { $0 >= candidateResetAt } ?? false
+            if consumed {
+                retainsCandidate = false
+            } else {
+                switch parsed.classification {
+                case .sent, .quotaUnavailable, .unknownFailure:
+                    retainsCandidate = true
+                case .limitReached, .authRequired, .apiBillingEnvPresent, .usageLimitNoReset:
+                    retainsCandidate = false
+                }
+            }
+        } else {
+            retainsCandidate = false
+        }
+        let parsedHasDisplaySignals = parsed.resetAt != nil || parsed.usedPercent != nil || parsed.weeklyUsedPercent != nil
+        guard retainsCandidate || !parsedHasDisplaySignals else {
+            return parsed
+        }
+        guard retainsCandidate || previous.resetAt != nil || previous.usedPercent != nil || previous.weeklyUsedPercent != nil else {
+            return parsed
+        }
+        // Field-wise: fresh values win where the result produced them, the
+        // previous observation fills the gaps so the popover never blanks.
+        let hasFreshSession = parsed.usedPercent != nil
+        let hasFreshWeekly = parsed.weeklyUsedPercent != nil
         return QuotaWindowState(
             tool: parsed.tool,
-            source: parsed.source,
-            confidence: parsed.confidence,
-            classification: parsed.classification,
+            source: retainsCandidate ? previous.source : parsed.source,
+            confidence: retainsCandidate ? previous.confidence : parsed.confidence,
+            classification: retainsCandidate ? previous.classification : parsed.classification,
             observedAt: parsed.observedAt,
-            resetAt: previous.resetAt,
-            usedPercent: previous.usedPercent,
-            remainingPercent: previous.remainingPercent,
-            windowLabel: previous.windowLabel,
-            weeklyUsedPercent: previous.weeklyUsedPercent,
-            weeklyRemainingPercent: previous.weeklyRemainingPercent,
-            weeklyResetAt: previous.weeklyResetAt,
-            weeklyWindowLabel: previous.weeklyWindowLabel,
+            resetAt: parsed.resetAt ?? previous.resetAt,
+            usedPercent: hasFreshSession ? parsed.usedPercent : previous.usedPercent,
+            remainingPercent: hasFreshSession ? parsed.remainingPercent : previous.remainingPercent,
+            windowLabel: hasFreshSession ? (parsed.windowLabel ?? previous.windowLabel) : previous.windowLabel,
+            weeklyUsedPercent: hasFreshWeekly ? parsed.weeklyUsedPercent : previous.weeklyUsedPercent,
+            weeklyRemainingPercent: hasFreshWeekly ? parsed.weeklyRemainingPercent : previous.weeklyRemainingPercent,
+            weeklyResetAt: hasFreshWeekly ? parsed.weeklyResetAt : previous.weeklyResetAt,
+            weeklyWindowLabel: hasFreshWeekly ? parsed.weeklyWindowLabel : previous.weeklyWindowLabel,
             summary: parsed.summary
         )
     }
@@ -510,6 +601,8 @@ public final class QuotaReadinessPoller {
             return "invalid_quota_state"
         case .staleProviderState:
             return "stale_provider_state"
+        case .postSendVerification:
+            return "post_send_verification"
         }
     }
 
@@ -518,15 +611,27 @@ public final class QuotaReadinessPoller {
     }
 
     private func lastProviderAttemptAt(in logs: [RunLogEntry]) -> Date? {
-        logs.filter { providerWasInvoked(status: $0.status) }.map(\.endedAt).max()
+        logs.filter { $0.status == .sent || $0.status == .failed || $0.status == .timedOut }
+            .map(\.endedAt)
+            .max()
     }
 
-    private func providerWasInvoked(status: RunStatus) -> Bool {
-        switch status {
-        case .sent, .failed, .timedOut:
-            return true
-        case .skippedOverlap, .skippedMissedWindow:
-            return false
+    // Standalone read for the state-merge path, which does not always have
+    // this tick's log snapshot in hand (manual sendNow, display observes).
+    private func lastToolSuccessAt(_ tool: ToolKind) -> Date? {
+        guard let logs = try? logStore.readAll() else {
+            return nil
+        }
+        return lastSuccessAt(in: logs.filter { $0.tool == tool })
+    }
+
+    private func failedSendAttempts(in logs: [RunLogEntry]) -> [String: QuotaSendAttemptHistory] {
+        let failures = logs.filter { $0.status == .failed || $0.status == .timedOut }
+        return Dictionary(grouping: failures, by: \.eventId).compactMapValues { entries in
+            guard let lastAttemptAt = entries.map(\.endedAt).max() else {
+                return nil
+            }
+            return QuotaSendAttemptHistory(count: entries.count, lastAttemptAt: lastAttemptAt)
         }
     }
 
@@ -538,7 +643,8 @@ public final class QuotaReadinessPoller {
         switch reason {
         case .toolDisabled, .resetNotDue, .quotaUnavailable:
             return false
-        case .idle, .activityUnavailable, .suppressedPowerState, .providerBlocked, .duplicateResetWindow, .cooldown:
+        case .idle, .activityUnavailable, .suppressedPowerState, .providerBlocked, .duplicateResetWindow,
+             .cooldown, .sendRetryBackoff, .sendAttemptsExhausted:
             return true
         }
     }
@@ -563,6 +669,10 @@ public final class QuotaReadinessPoller {
             return "duplicate_reset_window"
         case .cooldown:
             return "cooldown"
+        case .sendRetryBackoff:
+            return "send_retry_backoff"
+        case .sendAttemptsExhausted:
+            return "send_attempts_exhausted"
         }
     }
 }

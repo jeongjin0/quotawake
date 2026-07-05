@@ -86,6 +86,132 @@ final class CLIExecutorTests: XCTestCase {
         XCTAssertEqual(logs[0].exitCode, 7)
     }
 
+    func testExitZeroWithUsageLimitOutputLogsFailedNotSent() throws {
+        let fixture = try makeFixture()
+        let executable = try makeFakeExecutable(
+            name: "claude",
+            in: fixture.binDirectory,
+            captureDirectory: fixture.captureDirectory,
+            body: "printf 'You have hit your usage limit. Your limit resets in 2 hours.\\n'\nexit 0\n"
+        )
+        let runner = ToolRunner(logStore: fixture.logStore)
+
+        let entry = try runner.run(makeRequest(
+            tool: .claude,
+            executableURL: executable,
+            fixture: fixture,
+            timeoutSeconds: 5
+        ))
+
+        XCTAssertEqual(entry.status, .failed, "exit 0 with a usage-limit banner must not count as a sent readiness prompt")
+        XCTAssertEqual(entry.exitCode, 0)
+        XCTAssertEqual(entry.errorSummary, "CLI exited 0 but reported a usage limit; not counting as a sent readiness prompt")
+        let logs = try fixture.logStore.readAll()
+        XCTAssertEqual(logs.count, 1)
+        XCTAssertEqual(logs[0].status, .failed)
+    }
+
+    func testExitZeroReplyWithParseableResetButNoBannerPhraseStaysSent() throws {
+        let fixture = try makeFixture()
+        // A delivered reply can legitimately contain "try again in 5 minutes"
+        // (parses as limitReached); without an explicit banner phrase it must
+        // not be demoted, or the bounded retry would send real duplicates.
+        let executable = try makeFakeExecutable(
+            name: "claude",
+            in: fixture.binDirectory,
+            captureDirectory: fixture.captureDirectory,
+            body: "printf 'Sure - if the server is busy, try again in 5 minutes.\\n'\nexit 0\n"
+        )
+        let runner = ToolRunner(logStore: fixture.logStore)
+
+        let entry = try runner.run(makeRequest(
+            tool: .claude,
+            executableURL: executable,
+            fixture: fixture,
+            timeoutSeconds: 5
+        ))
+
+        XCTAssertEqual(entry.status, .sent, "a reply mentioning a retry time is not a limit banner")
+        XCTAssertNil(entry.errorSummary)
+    }
+
+    func testExitZeroReplyMerelyMentioningRateLimitsStaysSent() throws {
+        let fixture = try makeFixture()
+        let executable = try makeFakeExecutable(
+            name: "claude",
+            in: fixture.binDirectory,
+            captureDirectory: fixture.captureDirectory,
+            body: "printf 'Rate limiting is a common API design pattern used to protect servers.\\n'\nexit 0\n"
+        )
+        let runner = ToolRunner(logStore: fixture.logStore)
+
+        let entry = try runner.run(makeRequest(
+            tool: .claude,
+            executableURL: executable,
+            fixture: fixture,
+            timeoutSeconds: 5
+        ))
+
+        XCTAssertEqual(entry.status, .sent, "a normal reply mentioning rate limits must not be demoted")
+        XCTAssertNil(entry.errorSummary)
+    }
+
+    func testExitZeroWithLoginPromptOutputLogsFailedNotSent() throws {
+        let fixture = try makeFixture()
+        let executable = try makeFakeExecutable(
+            name: "claude",
+            in: fixture.binDirectory,
+            captureDirectory: fixture.captureDirectory,
+            body: "printf 'Not logged in. Please login to continue.\\n'\nexit 0\n"
+        )
+        let runner = ToolRunner(logStore: fixture.logStore)
+
+        let entry = try runner.run(makeRequest(
+            tool: .claude,
+            executableURL: executable,
+            fixture: fixture,
+            timeoutSeconds: 5
+        ))
+
+        XCTAssertEqual(entry.status, .failed)
+        XCTAssertEqual(entry.errorSummary, "CLI exited 0 but reported authentication is required")
+    }
+
+    func testStrayBackgroundGrandchildDoesNotHangOutputDrain() throws {
+        let fixture = try makeFixture()
+        // The backgrounded sleep inherits stdout/stderr and keeps the pipes
+        // open long after the direct child exits 0; the final drain must be
+        // deadline-bounded instead of blocking until the stray process dies.
+        let executable = try makeFakeExecutable(
+            name: "claude",
+            in: fixture.binDirectory,
+            captureDirectory: fixture.captureDirectory,
+            body: "sleep 30 &\nprintf 'ok\\n'\nexit 0\n"
+        )
+        let runner = ToolRunner(logStore: fixture.logStore)
+
+        let startedAt = Date()
+        let entry = try runner.run(makeRequest(
+            tool: .claude,
+            executableURL: executable,
+            fixture: fixture,
+            timeoutSeconds: 5
+        ))
+
+        XCTAssertEqual(entry.status, .sent)
+        XCTAssertTrue(entry.stdoutSummary.contains("ok"))
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 15, "pipe drain must not wait for the escaped grandchild")
+    }
+
+    func testPromptBeginningWithDashIsPassedAsTextNotFlag() {
+        let template = CLICommandTemplate()
+        let runDirectory = URL(fileURLWithPath: "/tmp/run", isDirectory: true)
+
+        XCTAssertEqual(template.arguments(for: .claude, prompt: "--help", runDirectory: runDirectory).last, " --help")
+        XCTAssertEqual(template.arguments(for: .codex, prompt: "-v", runDirectory: runDirectory).last, " -v")
+        XCTAssertEqual(template.arguments(for: .claude, prompt: "hi", runDirectory: runDirectory).last, "hi")
+    }
+
     func testTimeoutTerminatesProcessAndLogsTimedOut() throws {
         let fixture = try makeFixture()
         let executable = try makeFakeExecutable(

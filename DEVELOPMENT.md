@@ -139,8 +139,10 @@ Feedback-loop guardrails around the engine:
   popover refreshes state older than 30 seconds. After a failed observation
   (source unavailable or unparseable output) retries back off to once per
   5 minutes. Readiness-driven observations inside `tick()` stay throttled to
-  one probe per tool per 10 minutes; the popover footer Reload remains an
-  immediate manual observe.
+  one probe per tool per 10 minutes, except the single post-send verification
+  observe that follows a successful send. The popover footer Reload performs
+  an immediate manual observe unless a tick or send is mid-flight, in which
+  case it reports the provider busy and shows the last known state.
 - Skip logging is transition-based: the same gated candidate with the same
   reason logs once, not once per 60-second poll tick.
 

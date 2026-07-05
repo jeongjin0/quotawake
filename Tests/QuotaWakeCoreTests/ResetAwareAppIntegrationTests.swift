@@ -58,7 +58,11 @@ final class ResetAwareAppIntegrationTests: XCTestCase {
         try poller.sendNow()
 
         let state = try XCTUnwrap(fixture.quotaStateStore.load(tool: .codex))
-        XCTAssertEqual(state.classification, .sent, "Fresh run outcome must win")
+        XCTAssertEqual(
+            state.classification,
+            .limitReached(resetAt: observedReset),
+            "A signal-less send reply must not erase the observed reset candidate"
+        )
         XCTAssertEqual(state.usedPercent, 47, "Signal-less send output must not clobber observed quota data")
         XCTAssertEqual(state.weeklyUsedPercent, 16)
         XCTAssertEqual(state.resetAt, observedReset)
@@ -221,9 +225,10 @@ final class ResetAwareAppIntegrationTests: XCTestCase {
         try poller.tick()
 
         let logs = try fixture.logStore.readAll()
-        XCTAssertEqual(logs.count, 1)
-        XCTAssertEqual(logs.first?.status, .sent)
-        XCTAssertEqual(logs.first?.eventId, "reset-window-codex-2026-06-28T23:50:00Z")
+        let runEntries = logs.filter { !$0.eventId.hasPrefix("quota-observe-") }
+        XCTAssertEqual(runEntries.count, 1, "the send itself must be logged exactly once")
+        XCTAssertEqual(runEntries.first?.status, .sent)
+        XCTAssertEqual(runEntries.first?.eventId, "reset-window-codex-2026-06-28T23:50:00Z")
     }
 
     func testRapidTicksForSameResetWindowSendOnceThenLogDuplicateSkip() throws {
@@ -335,9 +340,212 @@ final class ResetAwareAppIntegrationTests: XCTestCase {
             XCTAssertEqual(runner.requests.count, 1, "\(attempt.0) should count as a provider attempt")
             let logs = try fixture.logStore.readAll()
             XCTAssertEqual(logs.last?.status, .skippedMissedWindow)
-            XCTAssertEqual(logs.last?.decisionSource, .idempotency)
-            XCTAssertEqual(logs.last?.skipReason, "duplicate_reset_window")
+            XCTAssertEqual(logs.last?.decisionSource, .cooldown)
+            XCTAssertEqual(logs.last?.skipReason, "send_retry_backoff")
         }
+    }
+
+    func testFailedSendRetriesAfterBackoffElapses() throws {
+        let fixture = try makeFixture()
+        var settings = AppSettings.default
+        settings.firstRunCompleted = true
+        settings.tools.claude.enabled = false
+        settings.tools.codex.enabled = true
+        settings.background.launchAtLoginEnabled = true
+        settings.readiness.activeOnly = true
+        settings.readiness.minimumSendCooldownMinutes = 0
+        try fixture.settingsStore.save(settings)
+        try fixture.quotaStateStore.save(QuotaWindowState(
+            tool: .codex,
+            source: .cliMessageParser,
+            confidence: .exactReset,
+            classification: .limitReached(resetAt: Self.now.addingTimeInterval(-700)),
+            observedAt: Self.now.addingTimeInterval(-60),
+            resetAt: Self.now.addingTimeInterval(-700),
+            summary: "limit reset due"
+        ))
+        let eventId = QuotaResetWindowEvent.resetWindowId(
+            tool: .codex,
+            resetAt: Self.now.addingTimeInterval(-700)
+        )
+        try fixture.logStore.append(Self.failedAttemptEntry(
+            eventId: eventId,
+            endedAt: Self.now.addingTimeInterval(-700)
+        ))
+
+        let runner = RecordingToolRunner(results: [
+            .codex: Self.runEntry(status: .sent, timedOut: false)
+        ])
+        let poller = QuotaReadinessPoller(
+            paths: fixture.paths,
+            settingsStore: fixture.settingsStore,
+            logStore: fixture.logStore,
+            quotaStateStore: fixture.quotaStateStore,
+            commandsProvider: { [fixture.command] },
+            runner: runner,
+            activityEvaluator: SequenceActivityEvaluator([.active]),
+            now: { Self.now }
+        )
+
+        try poller.tick()
+
+        XCTAssertEqual(runner.requests.count, 1, "a failed attempt should retry once its backoff elapses")
+        XCTAssertEqual(runner.requests.first?.eventId, eventId)
+    }
+
+    func testFailedAttemptStillArmsCooldownForADifferentResetCandidate() throws {
+        let fixture = try makeFixture()
+        var settings = AppSettings.default
+        settings.firstRunCompleted = true
+        settings.tools.claude.enabled = false
+        settings.tools.codex.enabled = true
+        settings.background.launchAtLoginEnabled = true
+        settings.readiness.activeOnly = true
+        settings.readiness.minimumSendCooldownMinutes = 30
+        try fixture.settingsStore.save(settings)
+        try fixture.quotaStateStore.save(QuotaWindowState(
+            tool: .codex,
+            source: .cliMessageParser,
+            confidence: .exactReset,
+            classification: .limitReached(resetAt: Self.now.addingTimeInterval(-120)),
+            observedAt: Self.now.addingTimeInterval(-60),
+            resetAt: Self.now.addingTimeInterval(-120),
+            summary: "first candidate due"
+        ))
+
+        let runner = RecordingToolRunner(results: [
+            .codex: Self.runEntry(status: .failed, timedOut: false)
+        ])
+        let poller = QuotaReadinessPoller(
+            paths: fixture.paths,
+            settingsStore: fixture.settingsStore,
+            logStore: fixture.logStore,
+            quotaStateStore: fixture.quotaStateStore,
+            commandsProvider: { [fixture.command] },
+            runner: runner,
+            activityEvaluator: SequenceActivityEvaluator([.active, .active]),
+            now: { Self.now }
+        )
+
+        try poller.tick()
+        XCTAssertEqual(runner.requests.count, 1)
+
+        // A different reset candidate observed a minute later must still wait
+        // out the configured cooldown from the failed attempt, not fire
+        // immediately because its own attempt history is empty.
+        try fixture.quotaStateStore.save(QuotaWindowState(
+            tool: .codex,
+            source: .cliMessageParser,
+            confidence: .exactReset,
+            classification: .limitReached(resetAt: Self.now.addingTimeInterval(-60)),
+            observedAt: Self.now,
+            resetAt: Self.now.addingTimeInterval(-60),
+            summary: "second candidate due"
+        ))
+        try poller.tick()
+
+        XCTAssertEqual(runner.requests.count, 1, "cooldown must space attempts across candidates")
+        let logs = try fixture.logStore.readAll()
+        XCTAssertEqual(logs.last?.status, .skippedMissedWindow)
+        XCTAssertEqual(logs.last?.skipReason, "cooldown")
+    }
+
+    func testSuccessfulSendTriggersVerificationObserveAndStoresNewWindow() throws {
+        let fixture = try makeFixture()
+        var settings = AppSettings.default
+        settings.firstRunCompleted = true
+        settings.tools.claude.enabled = false
+        settings.tools.codex.enabled = true
+        settings.background.launchAtLoginEnabled = true
+        settings.readiness.activeOnly = true
+        settings.readiness.minimumSendCooldownMinutes = 0
+        try fixture.settingsStore.save(settings)
+        try fixture.quotaStateStore.save(QuotaWindowState(
+            tool: .codex,
+            source: .cliMessageParser,
+            confidence: .exactReset,
+            classification: .limitReached(resetAt: Self.now),
+            observedAt: Self.now.addingTimeInterval(-60),
+            resetAt: Self.now,
+            summary: "limit reset due"
+        ))
+
+        let runner = RecordingToolRunner(results: [
+            .codex: Self.runEntry(status: .sent, timedOut: false)
+        ])
+        let newWindowResetAt = Self.now.addingTimeInterval(5 * 3_600)
+        let observer = NewWindowQuotaObserver(resetAt: newWindowResetAt)
+        let poller = QuotaReadinessPoller(
+            paths: fixture.paths,
+            settingsStore: fixture.settingsStore,
+            logStore: fixture.logStore,
+            quotaStateStore: fixture.quotaStateStore,
+            commandsProvider: { [fixture.command] },
+            runner: runner,
+            activityEvaluator: SequenceActivityEvaluator([.active]),
+            quotaObserverProvider: { _, _ in observer },
+            now: { Self.now }
+        )
+
+        try poller.tick()
+
+        XCTAssertEqual(runner.requests.count, 1)
+        XCTAssertEqual(observer.observeCount, 1, "a successful send must verify via a local quota read")
+        let state = try XCTUnwrap(fixture.quotaStateStore.load(tool: .codex))
+        XCTAssertEqual(state.classification, .limitReached(resetAt: newWindowResetAt), "the freshly started window must be stored")
+    }
+
+    func testExhaustedSendAttemptsStopRetrying() throws {
+        let fixture = try makeFixture()
+        var settings = AppSettings.default
+        settings.firstRunCompleted = true
+        settings.tools.claude.enabled = false
+        settings.tools.codex.enabled = true
+        settings.background.launchAtLoginEnabled = true
+        settings.readiness.activeOnly = true
+        settings.readiness.minimumSendCooldownMinutes = 0
+        try fixture.settingsStore.save(settings)
+        try fixture.quotaStateStore.save(QuotaWindowState(
+            tool: .codex,
+            source: .cliMessageParser,
+            confidence: .exactReset,
+            classification: .limitReached(resetAt: Self.now.addingTimeInterval(-3_600)),
+            observedAt: Self.now.addingTimeInterval(-60),
+            resetAt: Self.now.addingTimeInterval(-3_600),
+            summary: "limit reset due"
+        ))
+        let eventId = QuotaResetWindowEvent.resetWindowId(
+            tool: .codex,
+            resetAt: Self.now.addingTimeInterval(-3_600)
+        )
+        for offset in [-3_500.0, -2_500.0, -1_500.0] {
+            try fixture.logStore.append(Self.failedAttemptEntry(
+                eventId: eventId,
+                endedAt: Self.now.addingTimeInterval(offset)
+            ))
+        }
+
+        let runner = RecordingToolRunner(results: [
+            .codex: Self.runEntry(status: .sent, timedOut: false)
+        ])
+        let poller = QuotaReadinessPoller(
+            paths: fixture.paths,
+            settingsStore: fixture.settingsStore,
+            logStore: fixture.logStore,
+            quotaStateStore: fixture.quotaStateStore,
+            commandsProvider: { [fixture.command] },
+            runner: runner,
+            activityEvaluator: SequenceActivityEvaluator([.active]),
+            now: { Self.now }
+        )
+
+        try poller.tick()
+
+        XCTAssertEqual(runner.requests.count, 0, "three failed attempts must exhaust the reset window")
+        let logs = try fixture.logStore.readAll()
+        XCTAssertEqual(logs.last?.status, .skippedMissedWindow)
+        XCTAssertEqual(logs.last?.decisionSource, .idempotency)
+        XCTAssertEqual(logs.last?.skipReason, "send_attempts_exhausted")
     }
 
     func testObserveNeededTickUsesLocalQuotaSourcesWithoutProviderSend() throws {
@@ -468,7 +676,7 @@ final class ResetAwareAppIntegrationTests: XCTestCase {
 
         XCTAssertEqual(capturedThreshold, 900)
         XCTAssertEqual(runner.requests.count, 1, "600 idle seconds should be active under the saved 900s threshold")
-        XCTAssertEqual(try fixture.logStore.readAll().last?.status, .sent)
+        XCTAssertTrue(try fixture.logStore.readAll().contains { $0.status == .sent })
     }
 
     func testRepeatedGatedTicksLogOneSkipEntryPerCandidateAndReason() throws {
@@ -659,6 +867,28 @@ final class ResetAwareAppIntegrationTests: XCTestCase {
         )
     }
 
+    private static func failedAttemptEntry(eventId: String, endedAt: Date) -> RunLogEntry {
+        RunLogEntry(
+            eventId: eventId,
+            scheduledAt: endedAt.addingTimeInterval(-1),
+            startedAt: endedAt.addingTimeInterval(-1),
+            endedAt: endedAt,
+            tool: .codex,
+            commandPath: "/tmp/fake-codex",
+            status: .failed,
+            exitCode: 1,
+            durationMs: 1_000,
+            timedOut: false,
+            stdoutSummary: "",
+            stderrSummary: "transient failure",
+            prompt: "hi",
+            errorSummary: "CLI exited with code 1",
+            decisionSource: .quotaWindow,
+            quotaConfidence: .exactReset,
+            skipReason: nil
+        )
+    }
+
     private static let iso = ISO8601DateFormatter()
     private static let now = Date(timeIntervalSince1970: 1_782_690_600)
 
@@ -727,6 +957,29 @@ private final class CountingQuotaObserver: QuotaWindowObserving {
             observedAt: observedAt,
             resetAt: nil,
             summary: "probe failed"
+        )
+    }
+}
+
+private final class NewWindowQuotaObserver: QuotaWindowObserving {
+    private let resetAt: Date
+    private(set) var observeCount = 0
+
+    init(resetAt: Date) {
+        self.resetAt = resetAt
+    }
+
+    func observe(observedAt: Date) -> QuotaWindowState {
+        observeCount += 1
+        return QuotaWindowState(
+            tool: .codex,
+            source: .codexLocalAppServer,
+            confidence: .observedLocalQuota,
+            classification: .limitReached(resetAt: resetAt),
+            observedAt: observedAt,
+            resetAt: resetAt,
+            usedPercent: 1,
+            summary: "fresh window observed after send"
         )
     }
 }

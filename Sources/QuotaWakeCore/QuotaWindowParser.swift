@@ -54,6 +54,16 @@ public enum QuotaWindowParser {
         return state(tool, source, .unknown, .unknownFailure, observedAt, nil, usedPercent(in: text), summary)
     }
 
+    // Phrases that only appear in an actual provider limit banner, as opposed
+    // to keyword-level matches ("rate limit", "try again", "resets in") that a
+    // normal model reply can contain. Callers that must not misgrade a
+    // delivered reply (ToolRunner's exit-0 demotion) require one of these on
+    // top of the classification.
+    public static func containsExplicitLimitBanner(_ text: String) -> Bool {
+        let lowered = text.lowercased()
+        return ["usage limit", "limit reached", "hit your limit"].contains { lowered.contains($0) }
+    }
+
     static func exactReset(in text: String) -> Date? {
         matches(#"20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})"#, in: text)
             .compactMap(isoDate)

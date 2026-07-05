@@ -33,6 +33,15 @@ private let quotaWakeBlockingWorkQueue = DispatchQueue(
     qos: .utility
 )
 
+// Display-refresh observes (popover open, Reload) get their own queue so they
+// never line up behind a 120s readiness send on the queue above — during a
+// send they return promptly (the poller's exclusive-work guard makes them a
+// no-op) instead of freezing the popover for the whole timeout.
+private let quotaWakeObserveWorkQueue = DispatchQueue(
+    label: "com.jeongjin.quotawake.observe-work",
+    qos: .userInitiated
+)
+
 @MainActor
 final class QuotaWakeAppModel: ObservableObject {
     @Published var settings: AppSettings { didSet { invalidateUIStates() } }
@@ -56,6 +65,7 @@ final class QuotaWakeAppModel: ObservableObject {
     private let updateURLOpener: UpdateURLOpening
     private let poller: QuotaReadinessPoller
     private var pollerTask: Task<Void, Never>?
+    private var wakeObserver: NSObjectProtocol?
 
     init(
         paths: QuotaWakePaths = QuotaWakePaths(),
@@ -188,13 +198,20 @@ final class QuotaWakeAppModel: ObservableObject {
         }
     }
 
-    nonisolated private static func runBlocking(_ work: @escaping () -> Void) async {
+    nonisolated private static func runBlocking(
+        on queue: DispatchQueue = quotaWakeBlockingWorkQueue,
+        _ work: @escaping () -> Void
+    ) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            quotaWakeBlockingWorkQueue.async {
+            queue.async {
                 work()
                 continuation.resume()
             }
         }
+    }
+
+    nonisolated private static func runObserveBlocking(_ work: @escaping () -> Void) async {
+        await runBlocking(on: quotaWakeObserveWorkQueue, work)
     }
 
     func runNow() {
@@ -223,15 +240,24 @@ final class QuotaWakeAppModel: ObservableObject {
         let poller = self.poller
         pollerTask = Task { [weak self] in
             while !Task.isCancelled {
-                await Self.runBlocking {
-                    try? poller.tick()
-                    // 55s (not 60) so every pass of the 60-second loop
-                    // qualifies as stale and the displayed quota auto-updates.
-                    try? poller.observeIfStale(maxAgeSeconds: 55)
-                }
+                await Self.runPollPass(poller: poller)
                 self?.refreshAfterPollTick()
                 let nanoseconds = UInt64(max(1, intervalSeconds) * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: nanoseconds)
+            }
+        }
+        // Task.sleep pauses while the Mac sleeps, so a reset that came due
+        // during sleep would otherwise wait for the next post-wake tick at an
+        // arbitrary offset. Run one catch-up pass as soon as the system wakes.
+        if wakeObserver == nil {
+            wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didWakeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.pollOnceAfterWake()
+                }
             }
         }
     }
@@ -239,6 +265,32 @@ final class QuotaWakeAppModel: ObservableObject {
     func stopResetAwarePoller() {
         pollerTask?.cancel()
         pollerTask = nil
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+            self.wakeObserver = nil
+        }
+    }
+
+    private func pollOnceAfterWake() {
+        guard pollerTask != nil else {
+            return
+        }
+        let poller = self.poller
+        Task { [weak self] in
+            await Self.runPollPass(poller: poller)
+            self?.refreshAfterPollTick()
+        }
+    }
+
+    // One pass of the reset-aware loop; shared by the 60s loop and the
+    // post-system-wake catch-up so the two paths cannot drift.
+    nonisolated private static func runPollPass(poller: QuotaReadinessPoller) async {
+        await runBlocking {
+            try? poller.tick()
+            // 55s (not 60) so every pass of the 60-second loop qualifies as
+            // stale and the displayed quota auto-updates.
+            try? poller.observeIfStale(maxAgeSeconds: 55)
+        }
     }
 
     private func refreshAfterPollTick() {
@@ -295,7 +347,7 @@ final class QuotaWakeAppModel: ObservableObject {
     func observeQuotaIfStale(maxAgeSeconds: TimeInterval = 30) {
         let poller = self.poller
         Task {
-            await Self.runBlocking {
+            await Self.runObserveBlocking {
                 try? poller.observeIfStale(maxAgeSeconds: maxAgeSeconds, failureRetrySeconds: maxAgeSeconds)
             }
             self.refresh()
@@ -313,9 +365,11 @@ final class QuotaWakeAppModel: ObservableObject {
 
         Task {
             var message = "Observed local quota state."
-            await Self.runBlocking {
+            await Self.runObserveBlocking {
                 do {
-                    try poller.observeNow()
+                    if try !poller.observeNow() {
+                        message = "Provider busy; showing last known quota state."
+                    }
                 } catch {
                     message = "Local quota observation failed: \(error.localizedDescription)"
                 }

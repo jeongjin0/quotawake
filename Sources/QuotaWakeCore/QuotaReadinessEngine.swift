@@ -5,9 +5,20 @@ public struct QuotaReadinessEngine: Equatable, Sendable {
     // one-time condition (logged out once, app-server briefly missing) cannot
     // wedge the tool until a manual observe.
     private let staleProviderStateSeconds: TimeInterval
+    // A failed/timed-out send may retry after this backoff, up to the attempt
+    // cap below, so one transient error cannot burn the entire 5h reset window
+    // while a crash-looping CLI still cannot storm the provider.
+    private let sendFailureRetrySeconds: TimeInterval
+    private let maxSendAttemptsPerResetWindow: Int
 
-    public init(staleProviderStateSeconds: TimeInterval = 900) {
+    public init(
+        staleProviderStateSeconds: TimeInterval = 900,
+        sendFailureRetrySeconds: TimeInterval = 600,
+        maxSendAttemptsPerResetWindow: Int = 3
+    ) {
         self.staleProviderStateSeconds = staleProviderStateSeconds
+        self.sendFailureRetrySeconds = sendFailureRetrySeconds
+        self.maxSendAttemptsPerResetWindow = maxSendAttemptsPerResetWindow
     }
 
     public func evaluate(input: QuotaReadinessInput) -> QuotaReadinessDecision {
@@ -47,6 +58,23 @@ public struct QuotaReadinessEngine: Equatable, Sendable {
                 nextCandidate: candidate.event,
                 source: .idempotency
             ))
+        }
+        if let attempts = input.failedSendAttempts[candidate.event.eventId] {
+            guard attempts.count < maxSendAttemptsPerResetWindow else {
+                return .wait(QuotaReadinessWait(
+                    reason: .sendAttemptsExhausted,
+                    nextCandidate: candidate.event,
+                    source: .idempotency
+                ))
+            }
+            let retryAt = attempts.lastAttemptAt.addingTimeInterval(sendFailureRetrySeconds)
+            if input.now < retryAt {
+                return .wait(QuotaReadinessWait(
+                    reason: .sendRetryBackoff(until: retryAt),
+                    nextCandidate: candidate.event,
+                    source: .cooldown
+                ))
+            }
         }
         if let cooldownUntil = cooldownUntil(input), input.now < cooldownUntil {
             return .wait(QuotaReadinessWait(
