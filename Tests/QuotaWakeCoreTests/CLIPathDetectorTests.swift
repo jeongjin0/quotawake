@@ -1,6 +1,11 @@
-import Darwin
 import XCTest
 @testable import QuotaWakeCore
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 final class CLIPathDetectorTests: XCTestCase {
     private var tempDirectories: [URL] = []

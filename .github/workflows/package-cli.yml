@@ -1,0 +1,47 @@
+name: Package CLI previews
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  package-unix:
+    name: Package (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9
+        with:
+          swift-version: "6.3.3"
+      - run: ./Scripts/package_cli.sh release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: quotawake-${{ runner.os }}-${{ runner.arch }}
+          path: dist/cli/*
+          if-no-files-found: error
+
+  package-windows-preview:
+    name: Package Windows preview
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: compnerd/gha-setup-swift@eeda069c5bc95ac8a9ac5cea7d4f588ae5420ca5
+        with:
+          swift-version: swift-6.3-release
+          swift-build: 6.3.3-RELEASE
+      - shell: pwsh
+        run: ./Scripts/package_cli.ps1 -Configuration release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: quotawake-Windows-${{ runner.arch }}
+          path: dist/cli/*
+          if-no-files-found: error

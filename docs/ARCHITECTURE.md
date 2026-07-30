@@ -1,13 +1,20 @@
-# QuotaWake Mac Architecture
+# QuotaWake Architecture
 
 A map of the code for contributors. Product scope lives in `docs/MVP-SPEC.md`;
 build/QA commands live in `DEVELOPMENT.md`.
+Current distribution confidence and unresolved OS-boundary risks live in
+`docs/RELEASE-READINESS.md`.
 
 ## Targets
 
-- `QuotaWakeCore` (library): all decision logic, parsing, persistence, and
-  process execution. Fully covered by `Tests/QuotaWakeCoreTests`.
-- `QuotaWake` (executable): AppKit/SwiftUI shell — `AppModel.swift` (view
+- `QuotaWakeCore` (library): decision logic, parsing, persistence, provider
+  observation, process execution, and platform protocols. Covered by
+  `Tests/QuotaWakeCoreTests`.
+- `quotawake` / `QuotaWakeCLI` (executable): the primary command and foreground
+  daemon surface. It owns setup, diagnostics, status/JSON output, manual
+  observe/send, configuration, logs, and per-user service installation.
+- `QuotaWakeMac` (macOS-only executable product): optional AppKit/SwiftUI shell
+  packaged inside `QuotaWake.app` — `AppModel.swift` (view
   model), `AppDelegate.swift` (status item, popover/window wiring),
   `SettingsViews.swift`, `FirstRunViews.swift`, the popover view files,
   `DebugUIQA.swift` (`#if DEBUG` UI-QA harness), and a 9-line `main.swift`
@@ -16,7 +23,8 @@ build/QA commands live in `DEVELOPMENT.md`.
 ## Runtime flow
 
 ```
-60s tick (QuotaWakeAppModel.startResetAwarePoller)
+60s tick (`quotawake daemon`; the optional Mac app currently retains its
+transition-period in-process poller)
    ├─ QuotaReadinessPoller.tick()
    │    ├─ SettingsStore.load()            gate: first-run done, background on, not paused
    │    ├─ RunLogStore.readAll()           idempotency + cooldown inputs (read once per tick)
@@ -56,7 +64,7 @@ build/QA commands live in `DEVELOPMENT.md`.
         Blocked classifications (auth, billing env) always win.
 ```
 
-The 60-second loop's `Task.sleep` pauses while the Mac sleeps, so
+The macOS app loop's `Task.sleep` pauses while the Mac sleeps, so
 `QuotaWakeAppModel` also listens for `NSWorkspace.didWakeNotification` and runs
 one immediate catch-up pass (tick + stale observe) on system wake instead of
 waiting for the next post-wake tick.
@@ -90,6 +98,32 @@ spaced). Blocked/unavailable states older than ~15 minutes yield
 | UI state mapping | `AppUIModels` (pure presentation mapper consumed by the executable) |
 | Misc | `FirstRunFlow`, `LaunchAtLoginManager` (SMAppService), `UpdateChecker` (strict SemVer vs GitHub releases), `QuotaWakeCore` (bundle metadata) |
 
+## Platform seams
+
+- Paths: macOS preserves `~/Library/Application Support/QuotaWake`; Linux uses
+  `$XDG_STATE_HOME/quotawake` (or `~/.local/state/quotawake`); Windows uses
+  `%LOCALAPPDATA%\QuotaWake`. `QUOTAWAKE_HOME` overrides all three.
+- CLI discovery: environment `PATH`, common system locations, and Node-managed
+  locations are combined. Windows adds `.exe`, `.cmd`, and `.bat` candidates.
+- Activity: macOS uses CoreGraphics plus power-state suppression. Linux uses
+  the current `systemd-logind` session idle hint. Windows automatic activity
+  remains fail-closed until the native Win32 adapter passes QA.
+- Background service: per-user launchd agent on macOS, `systemd --user` unit on
+  Linux, and Task Scheduler preview on Windows. No root service is installed.
+- Process termination: Unix platforms use bounded SIGTERM/SIGKILL descendant
+  cleanup. Windows currently terminates the direct child and remains a preview
+  until Job Object-backed descendant cleanup is implemented.
+
+The CLI daemon is the long-term single owner of scheduling. The optional Mac
+app still has its original in-process poller during the transition; it must be
+converted to consume CLI-owned JSON/state before both surfaces are shipped
+together as generally available.
+
+Service definitions store the absolute path of the invoking CLI. Until a
+supported installer owns that path, users must copy `quotawake` into a durable
+location before registering the service. The current `doctor` command does not
+yet prove that the service or native activity adapter is operational.
+
 ## Removed scope
 
 The Phase-4 wake-helper subsystem (`WakeHelper`, `WakeHelperInstaller`,
@@ -99,7 +133,7 @@ like it.
 
 ## Data on disk
 
-`~/Library/Application Support/QuotaWake/`
+Platform-specific QuotaWake state root (see "Platform seams"):
 - `settings.json` — app settings (schema v2; v1 `schedule.paused` migrates to `readiness.paused`)
 - `Logs/YYYY-MM-DD.jsonl` — sanitized run/skip/observation entries
 - `QuotaWindows/<tool>.json` — last observed quota state per tool

@@ -4,6 +4,12 @@ import Foundation
 import CoreGraphics
 #endif
 
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
+
 public struct ActivityGate: Sendable {
     private let configuration: ActivityGateConfiguration
     private let idleReader: ActivityIdleReading
@@ -11,7 +17,7 @@ public struct ActivityGate: Sendable {
 
     public init(
         configuration: ActivityGateConfiguration = .default,
-        idleReader: ActivityIdleReading = CoreGraphicsActivityIdleReader(),
+        idleReader: ActivityIdleReading = PlatformActivityIdleReader(),
         powerStateProbe: ActivityPowerStateProbing = IoregActivityPowerStateProbe()
     ) {
         self.configuration = configuration
@@ -83,6 +89,23 @@ public protocol ActivityIdleReading: Sendable {
     func secondsSinceLastInput() -> TimeInterval?
 }
 
+public struct PlatformActivityIdleReader: ActivityIdleReading {
+    public init() {}
+
+    public func secondsSinceLastInput() -> TimeInterval? {
+        #if os(macOS)
+        return CoreGraphicsActivityIdleReader().secondsSinceLastInput()
+        #elseif os(Linux)
+        return LinuxLogindActivityIdleReader().secondsSinceLastInput()
+        #else
+        // Windows support stays fail-closed until the Win32 idle adapter is
+        // exercised on a native Windows runner. Manual observe/send commands
+        // remain available; the daemon will not send automatically.
+        return nil
+        #endif
+    }
+}
+
 public struct CoreGraphicsActivityIdleReader: ActivityIdleReading {
     public init() {}
 
@@ -102,6 +125,78 @@ public struct CoreGraphicsActivityIdleReader: ActivityIdleReading {
         #else
         return nil
         #endif
+    }
+}
+
+public struct LinuxLogindActivityIdleReader: ActivityIdleReading {
+    private let environment: [String: String]
+
+    public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+        self.environment = environment
+    }
+
+    public func secondsSinceLastInput() -> TimeInterval? {
+        #if os(Linux)
+        guard let sessionID = environment["XDG_SESSION_ID"], !sessionID.isEmpty else {
+            return nil
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/loginctl")
+        process.arguments = [
+            "show-session",
+            sessionID,
+            "--property=IdleHint",
+            "--property=IdleSinceHintMonotonic"
+        ]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return nil
+        }
+        guard process.terminationStatus == 0 else {
+            return nil
+        }
+
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        return LinuxLogindIdleParser.secondsSinceLastInput(
+            output: String(data: data, encoding: .utf8) ?? "",
+            systemUptime: ProcessInfo.processInfo.systemUptime
+        )
+        #else
+        return nil
+        #endif
+    }
+}
+
+public enum LinuxLogindIdleParser {
+    public static func secondsSinceLastInput(output: String, systemUptime: TimeInterval) -> TimeInterval? {
+        let values = Dictionary(uniqueKeysWithValues: output
+            .split(separator: "\n")
+            .compactMap { line -> (String, String)? in
+                let parts = line.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+                guard parts.count == 2 else { return nil }
+                return (String(parts[0]), String(parts[1]))
+            })
+        guard let idleHint = values["IdleHint"]?.lowercased() else {
+            return nil
+        }
+        if idleHint == "no" || idleHint == "false" {
+            return 0
+        }
+        guard idleHint == "yes" || idleHint == "true",
+              let idleSinceValue = values["IdleSinceHintMonotonic"],
+              let idleSinceMicroseconds = Double(idleSinceValue),
+              idleSinceMicroseconds > 0 else {
+            return nil
+        }
+        let nowMicroseconds = systemUptime * 1_000_000
+        return max(0, (nowMicroseconds - idleSinceMicroseconds) / 1_000_000)
     }
 }
 
@@ -182,9 +277,11 @@ public struct ProcessActivityPowerStateCommandRunner: ActivityPowerStateCommandR
             if process.isRunning {
                 Thread.sleep(forTimeInterval: 0.05)
             }
+            #if !os(Windows)
             if process.isRunning {
                 kill(process.processIdentifier, SIGKILL)
             }
+            #endif
             process.waitUntilExit()
             return .timedOut
         }

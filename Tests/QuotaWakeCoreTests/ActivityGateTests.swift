@@ -177,6 +177,31 @@ final class ActivityGateTests: XCTestCase {
         XCTAssertFalse(providerWasExecuted)
     }
 
+    func testLinuxLogindIdleParserReportsActiveSessionAsZeroIdle() {
+        let seconds = LinuxLogindIdleParser.secondsSinceLastInput(
+            output: "IdleSinceHintMonotonic=1000000\nIdleHint=no\n",
+            systemUptime: 10
+        )
+
+        XCTAssertEqual(seconds, 0)
+    }
+
+    func testLinuxLogindIdleParserUsesMonotonicMicrosecondsIndependentOfPropertyOrder() {
+        let seconds = LinuxLogindIdleParser.secondsSinceLastInput(
+            output: "IdleSinceHintMonotonic=7000000\nIdleHint=yes\n",
+            systemUptime: 10
+        )
+
+        XCTAssertEqual(seconds, 3)
+    }
+
+    func testLinuxLogindIdleParserFailsClosedOnMissingValues() {
+        XCTAssertNil(LinuxLogindIdleParser.secondsSinceLastInput(
+            output: "IdleHint=yes\n",
+            systemUptime: 10
+        ))
+    }
+
     private static let activePowerOutput = powerOutput(wakeType: "FullWake")
 
     private static func powerOutput(wakeType: String) -> String {

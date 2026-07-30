@@ -12,6 +12,7 @@ esac
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="QuotaWake"
+SWIFT_PRODUCT_NAME="QuotaWakeMac"
 APP_ICON_NAME="QuotaWake"
 APP_ICON_FILE="${APP_ICON_NAME}.icns"
 APP_DIR="${ROOT_DIR}/${APP_NAME}.app"
@@ -41,16 +42,22 @@ if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 cd "${ROOT_DIR}"
-swift build -c "${CONFIGURATION}"
+swift build -c "${CONFIGURATION}" --product "${SWIFT_PRODUCT_NAME}"
 BIN_DIR="$(swift build -c "${CONFIGURATION}" --show-bin-path)"
 
 rm -rf "${APP_DIR}"
 mkdir -p "${MACOS_DIR}" "${RESOURCES_DIR}"
-cp "${BIN_DIR}/${APP_NAME}" "${MACOS_DIR}/${APP_NAME}"
+cp "${BIN_DIR}/${SWIFT_PRODUCT_NAME}" "${MACOS_DIR}/${APP_NAME}"
 chmod 755 "${MACOS_DIR}/${APP_NAME}"
 if [[ -d "${ROOT_DIR}/Resources" ]]; then
   ditto "${ROOT_DIR}/Resources" "${RESOURCES_DIR}"
 fi
+ARGUMENT_PARSER_LICENSE="${ROOT_DIR}/.build/checkouts/swift-argument-parser/LICENSE.txt"
+if [[ ! -s "${ARGUMENT_PARSER_LICENSE}" ]]; then
+  echo "Missing swift-argument-parser license: ${ARGUMENT_PARSER_LICENSE}" >&2
+  exit 67
+fi
+cp "${ARGUMENT_PARSER_LICENSE}" "${RESOURCES_DIR}/swift-argument-parser-LICENSE.txt"
 if [[ ! -s "${RESOURCES_DIR}/${APP_ICON_FILE}" ]]; then
   echo "Missing app icon resource: ${RESOURCES_DIR}/${APP_ICON_FILE}" >&2
   exit 66

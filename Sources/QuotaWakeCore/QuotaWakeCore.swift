@@ -2,6 +2,7 @@ import Foundation
 
 public enum QuotaWakeCore {
     public static let appName = "QuotaWake"
+    public static let currentVersion = "0.0.1"
 }
 
 public struct BundleMetadata: Equatable, Sendable {

@@ -1,15 +1,63 @@
-# QuotaWake Mac Release Guide
+# QuotaWake Release Guide
 
-This is the release path for QuotaWake Mac public and prerelease builds.
-QuotaWake is a native SwiftUI/AppKit app, so this guide keeps the reusable
-macOS signing and DMG gates from the local reference release process while
-excluding Tauri automatic-updater-specific assets and commands.
+This guide covers cross-platform CLI preview archives and the optional macOS
+app. CLI artifacts and the DMG have separate gates; passing one does not imply
+the other is releasable.
 
-## Release Channel
+## Current release decision
+
+As of 2026-07-31, stable public distribution is **NO-GO**. A macOS arm64
+source/developer preview is the only currently supportable lane. The local CLI
+archive passes build, checksum, extraction, and execution checks, but its
+linker/ad-hoc signature is rejected by Gatekeeper. Linux and Windows native
+workflows and service-lifecycle gates have not run.
+
+See `docs/RELEASE-READINESS.md` for the evidence, confidence matrix, and risk
+register. Do not reinterpret a successful local package build as approval to
+publish a stable binary.
+
+## CLI preview archives
+
+Build native preview artifacts with:
+
+```bash
+# macOS or Linux
+./Scripts/package_cli.sh release
+
+# Windows PowerShell
+./Scripts/package_cli.ps1 -Configuration release
+```
+
+Expected artifacts are versioned `.tar.gz` (macOS/Linux) or `.zip` (Windows)
+archives plus adjacent SHA-256 files. Each archive contains the binary,
+README, project license, third-party notices, and the complete
+`swift-argument-parser` Apache 2.0 license. `.github/workflows/package-cli.yml`
+creates CI artifacts without publishing a GitHub Release.
+
+Before attaching a CLI archive to a public release:
+
+- its platform's native build and CLI smoke must be a required passing gate;
+- the artifact must run on a clean supported machine without an installed
+  Swift development toolchain;
+- `quotawake --version`, `version.env`, the tag, and archive name must agree;
+- `setup`, `doctor`, `status --json`, and manual `observe` must be exercised
+  with fake provider CLIs;
+- a live provider smoke remains explicit and must not expose credentials;
+- the archive must contain only the release binary, README, project license,
+  third-party notices, and required third-party license files;
+- the CLI must be installed into a durable path before `service install`, and
+  the full install/start/login/status/stop/restart/uninstall lifecycle must pass;
+- a macOS download must pass Developer ID signing/notarization and `spctl` for
+  the exact downloadable artifact;
+- publish the SHA-256 value next to the asset.
+
+Windows packaging remains preview-only while its CI job is allowed to fail.
+
+## Optional macOS app release channel
 
 - Manual download asset: signed and notarized `.dmg` only.
 - The `.dmg` must install `QuotaWake.app` by drag-to-Applications.
-- Never publish `.app` bundles, `.zip` archives, private build logs, env dumps,
+- Never publish raw `.app` bundles, private build logs, env dumps,
   secrets, debug builds, or root-helper staging files as user downloads.
 - Prerelease `.dmg` assets are release candidates, not lower-grade builds. If a
   tester can download the binary, it must pass the same signing, notarization,
@@ -23,7 +71,7 @@ excluding Tauri automatic-updater-specific assets and commands.
 
 ## Assumed Location And Variables
 
-Run commands from `quotawake_mac/` unless a command explicitly says otherwise.
+Run commands from the repository root unless a command explicitly says otherwise.
 This document is the contract the release scripts in `Scripts/` must satisfy.
 
 Set release variables once per release:

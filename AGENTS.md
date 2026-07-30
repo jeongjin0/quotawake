@@ -1,6 +1,7 @@
-# QuotaWake Mac Notes
+# QuotaWake Notes
 
-This directory owns the native macOS QuotaWake app.
+This repository owns the cross-platform QuotaWake CLI/daemon and the optional
+native macOS menu bar interface.
 
 ## Read First
 
@@ -15,25 +16,31 @@ This directory owns the native macOS QuotaWake app.
 
 ## Product Boundaries
 
-- QuotaWake is a native SwiftUI/AppKit menu bar app, not Tauri, Electron, or a
-  website surface.
+- The lowercase `quotawake` CLI and its per-user daemon are the primary product
+  surface. The SwiftUI/AppKit menu bar app is optional and macOS-only.
+- Keep shared decision logic, parsing, persistence, and provider adapters in
+  `QuotaWakeCore`; do not make cross-platform behavior depend on AppKit.
 - Use "usage window scheduling", "session readiness", and "quota window wake"
   language. Do not frame the app as quota bypassing or getting extra usage.
-- The MVP invokes installed official `claude` and `codex` CLIs. It must not
+- QuotaWake invokes installed official `claude` and `codex` CLIs. It must not
   store provider tokens or call provider HTTP APIs directly.
 - The readiness prompt runs as the logged-in user. Do not run Claude or Codex as
   root.
+- Automatic activity gating must fail closed when a platform cannot establish
+  that the user session is active. Headless always-active behavior requires an
+  explicit future product decision.
 
 ## Release Rules
 
-- Public and prerelease manual downloads must be signed and notarized `.dmg`
-  assets only.
+- CLI previews may be packaged as checksummed `.tar.gz` files for macOS/Linux
+  and `.zip` files for Windows. Do not attach them to a public release until
+  their native-platform build and smoke gates pass.
+- The optional macOS GUI continues to ship only as a signed and notarized `.dmg`.
 - Version strings use SemVer `MAJOR.MINOR.PATCH` form, for example `0.0.0`.
-  Keep `version.env`, app bundle metadata, release tags, and DMG filenames in
-  sync.
-- Do not publish `.app` bundles, `.zip` archives, debug builds, private logs,
-  env dumps, secrets, updater-only assets, or helper staging files as user
-  downloads.
+  Keep `version.env`, CLI version output, app bundle metadata, release tags,
+  archives, and DMG filenames in sync.
+- Do not publish raw `.app` bundles, debug builds, private logs, env dumps,
+  secrets, updater-only assets, or helper staging files as user downloads.
 - The MVP may include a manual "Check for Updates" UI that opens a release page
   or DMG URL. Do not implement automatic download, install, relaunch, Sparkle,
   or Tauri updater flows in the MVP.
@@ -58,12 +65,14 @@ This directory owns the native macOS QuotaWake app.
 
 ## Useful Commands
 
-Run these from `quotawake_mac/` unless a command says otherwise:
+Run these from the repository root unless a command says otherwise:
 
 ```bash
 swift test
-swift build -c debug
+swift build -c debug --product quotawake
+swift run quotawake --help
 ./Scripts/package_app.sh debug
+./Scripts/package_cli.sh release
 ./Scripts/create_dmg.sh --dry-run
 ```
 

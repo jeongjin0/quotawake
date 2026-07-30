@@ -1,7 +1,36 @@
-# QuotaWake Mac Development
+# QuotaWake Development
 
-This is the day-to-day implementation guide for the native macOS app. Run
-commands from `quotawake_mac/` unless a command says otherwise.
+This is the day-to-day implementation guide for the cross-platform CLI/daemon
+and optional native macOS app. Run commands from the repository root.
+
+Current implementation confidence and release blockers are tracked in
+`docs/RELEASE-READINESS.md`. Local macOS success is not evidence that Linux or
+Windows service integration works.
+
+## CLI development
+
+Core commands:
+
+```bash
+swift build --product quotawake
+swift test
+swift run quotawake --help
+QUOTAWAKE_HOME="$(mktemp -d)" swift run quotawake status --json
+```
+
+Package a preview archive on macOS or Linux:
+
+```bash
+./Scripts/package_cli.sh release
+```
+
+Windows uses `Scripts/package_cli.ps1`. GitHub Actions is configured to run macOS
+and Linux as required build/test surfaces; Windows remains a visible build preview
+until its native idle and process-tree adapters pass QA.
+
+The SwiftPM GUI product is named `QuotaWakeMac` internally so it can coexist on
+case-insensitive macOS filesystems with the lowercase `quotawake` product. The
+packaging script still creates `QuotaWake.app/Contents/MacOS/QuotaWake`.
 
 ## Local Build
 
@@ -17,7 +46,7 @@ Core commands:
 
 ```bash
 swift test
-swift build -c debug
+swift build -c debug --product QuotaWakeMac
 ./Scripts/package_app.sh debug
 ./Scripts/create_dmg.sh --dry-run
 ```

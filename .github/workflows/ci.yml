@@ -1,0 +1,48 @@
+name: Cross-platform Swift
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9
+        with:
+          swift-version: "6.3.3"
+      - name: Swift version
+        run: swift --version
+      - name: Build CLI
+        run: swift build --product quotawake
+      - name: Test
+        run: swift test
+      - name: CLI smoke
+        run: swift run quotawake --help
+
+  windows-portability:
+    name: Windows build preview
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: compnerd/gha-setup-swift@eeda069c5bc95ac8a9ac5cea7d4f588ae5420ca5
+        with:
+          swift-version: swift-6.3-release
+          swift-build: 6.3.3-RELEASE
+      - name: Swift version
+        run: swift --version
+      - name: Build CLI
+        run: swift build --product quotawake
+      - name: CLI smoke
+        run: swift run quotawake --help

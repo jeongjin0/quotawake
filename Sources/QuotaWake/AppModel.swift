@@ -225,7 +225,7 @@ final class QuotaWakeAppModel: ObservableObject {
 
         Task {
             await Self.runBlocking {
-                try? poller.sendNow()
+                _ = try? poller.sendNow()
             }
             self.isRunning = false
             self.statusMessage = "Readiness send finished."
