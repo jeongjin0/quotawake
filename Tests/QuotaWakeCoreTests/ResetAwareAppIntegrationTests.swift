@@ -3,6 +3,8 @@ import XCTest
 
 #if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
 #endif
 
 final class ResetAwareAppIntegrationTests: XCTestCase {
@@ -809,7 +811,7 @@ final class ResetAwareAppIntegrationTests: XCTestCase {
         done
         """
         try script.write(to: executable, atomically: true, encoding: .utf8)
-        #if canImport(Darwin)
+        #if canImport(Darwin) || canImport(Glibc)
         XCTAssertEqual(chmod(executable.path, 0o755), 0)
         #endif
         return executable
@@ -822,7 +824,7 @@ final class ResetAwareAppIntegrationTests: XCTestCase {
         printf 'Current session: 61%% used. Resets at \(resetAt).\\n'
         """
         try script.write(to: executable, atomically: true, encoding: .utf8)
-        #if canImport(Darwin)
+        #if canImport(Darwin) || canImport(Glibc)
         XCTAssertEqual(chmod(executable.path, 0o755), 0)
         #endif
         return executable
@@ -835,7 +837,7 @@ final class ResetAwareAppIntegrationTests: XCTestCase {
         printf 'ok\\n'
         """
         try script.write(to: executable, atomically: true, encoding: .utf8)
-        #if canImport(Darwin)
+        #if canImport(Darwin) || canImport(Glibc)
         XCTAssertEqual(chmod(executable.path, 0o755), 0)
         #endif
         return executable

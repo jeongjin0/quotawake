@@ -3,6 +3,8 @@ import XCTest
 
 #if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
 #endif
 
 final class CLIExecutorTests: XCTestCase {
@@ -548,7 +550,7 @@ final class CLIExecutorTests: XCTestCase {
         \(body ?? "printf 'ok\\n'\n")
         """
         try script.write(to: executable, atomically: true, encoding: .utf8)
-        #if canImport(Darwin)
+        #if canImport(Darwin) || canImport(Glibc)
         XCTAssertEqual(chmod(executable.path, 0o755), 0)
         #endif
         return executable
