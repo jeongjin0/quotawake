@@ -9,8 +9,9 @@ the other is releasable.
 As of 2026-07-31, stable public distribution is **NO-GO**. A macOS arm64
 source/developer preview is the only currently supportable lane. The local CLI
 archive passes build, checksum, extraction, and execution checks, but its
-linker/ad-hoc signature is rejected by Gatekeeper. Linux and Windows native
-workflows and service-lifecycle gates have not run.
+linker/ad-hoc signature is rejected by Gatekeeper. Native CI now passes the
+macOS/Linux build, test, and smoke jobs and the Windows build/smoke preview;
+package, clean-machine runtime, and service-lifecycle gates have not run.
 
 See `docs/RELEASE-READINESS.md` for the evidence, confidence matrix, and risk
 register. Do not reinterpret a successful local package build as approval to

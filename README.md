@@ -24,9 +24,10 @@ Codex session readiness. The native macOS menu bar app is an optional interface.
 
 > **Release status (2026-07-31): developer preview.** The macOS arm64 CLI is
 > locally verified from source, but the downloadable archive is not yet a
-> signed/notarized stable release. Linux and Windows native release gates have
-> not run. See [Release readiness](docs/RELEASE-READINESS.md) before publishing
-> binaries.
+> signed/notarized stable release. Native CI now passes on macOS and Linux, and
+> the Windows build preview passes, but packaging, clean-machine runtime, and
+> background-service lifecycle gates remain. See
+> [Release readiness](docs/RELEASE-READINESS.md) before publishing binaries.
 
 ## What is QuotaWake?
 
@@ -119,13 +120,15 @@ active.
 | --- | --- | --- | --- | --- |
 | macOS 13+ arm64 | Built and tested locally | `launchd` implemented; native lifecycle gate pending | CoreGraphics + power-state checks | Source/developer preview |
 | macOS 13+ x86_64 | Not built in this review | `launchd` implementation shared | Not verified on Intel | Unverified |
-| Linux | CI workflow configured; not yet run | `systemd --user` preview | `systemd-logind` session handling needs native QA | No public binary yet |
-| Windows 10+ | CI build preview configured; not yet run | Task Scheduler preview | Automatic sends fail closed pending Win32 adapter | No public binary yet |
+| Linux | Swift 6.3.3 CI build, 166 tests, and CLI smoke pass | `systemd --user` preview | `systemd-logind` session handling needs VM QA | Source/CI preview |
+| Windows 10+ | Swift 6.3.3 native build and CLI smoke pass | Task Scheduler preview | Automatic sends fail closed pending Win32 adapter | Build preview |
 
-The repository includes GitHub Actions jobs for Linux and Windows builds. Windows
-automatic sends remain fail-closed until the native idle adapter and process-tree
+The [cross-platform CI run](https://github.com/jeongjin0/quotawake/actions/runs/30566908704)
+passed on macOS 15, Ubuntu 24.04, and Windows. Windows remains a non-required build
+preview. Automatic sends stay fail-closed until the native idle adapter and process-tree
 termination pass native Windows QA; `status`, `doctor`, `observe`, and `send` are the
-initial portability surface.
+initial portability surface. Linux currently requires Bash for safe provider-process
+launching in addition to the Swift runtime requirements of the packaged binary.
 
 Current ship decision: a clearly labeled macOS arm64 developer preview is
 reasonable for technical testers. A stable public CLI archive, Linux binary,
@@ -184,9 +187,9 @@ swift test
 ./Scripts/package_app.sh debug
 ```
 
-Windows packaging uses `Scripts/package_cli.ps1`. CI builds macOS and Linux as required
-jobs once the workflow is pushed, and keeps the Windows build visible as a portability
-preview until it is promoted to a required gate.
+Windows packaging uses `Scripts/package_cli.ps1`. CI builds and tests macOS and Linux as
+required jobs, and keeps the Windows build visible as a portability preview until it is
+promoted to a required gate.
 
 | Document | Purpose |
 | --- | --- |

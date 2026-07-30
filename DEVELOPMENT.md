@@ -4,8 +4,8 @@ This is the day-to-day implementation guide for the cross-platform CLI/daemon
 and optional native macOS app. Run commands from the repository root.
 
 Current implementation confidence and release blockers are tracked in
-`docs/RELEASE-READINESS.md`. Local macOS success is not evidence that Linux or
-Windows service integration works.
+`docs/RELEASE-READINESS.md`. Cross-platform compiler/test success is not evidence
+that Linux or Windows service integration works.
 
 ## CLI development
 
@@ -24,9 +24,10 @@ Package a preview archive on macOS or Linux:
 ./Scripts/package_cli.sh release
 ```
 
-Windows uses `Scripts/package_cli.ps1`. GitHub Actions is configured to run macOS
-and Linux as required build/test surfaces; Windows remains a visible build preview
-until its native idle and process-tree adapters pass QA.
+Windows uses `Scripts/package_cli.ps1`. GitHub Actions runs macOS and Linux as
+required build/test surfaces; Windows remains a visible build preview until its
+native idle and process-tree adapters pass QA. Linux provider execution currently
+requires `/bin/bash` for inherited-descriptor isolation.
 
 The SwiftPM GUI product is named `QuotaWakeMac` internally so it can coexist on
 case-insensitive macOS filesystems with the lowercase `quotawake` product. The
