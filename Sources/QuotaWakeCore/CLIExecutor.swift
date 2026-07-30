@@ -182,7 +182,7 @@ public final class CLIExecutor {
         // report the direct CLI exit until every descendant exits. Close all
         // non-standard descriptors in a tiny shell trampoline before exec;
         // argv remains positional and is never interpolated into shell text.
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = [
             "-c",
             Self.linuxDescriptorClosingExec,
@@ -254,7 +254,7 @@ public final class CLIExecutor {
       fd="${fd_path##*/}"
       case "$fd" in
         0|1|2) ;;
-        *) eval "exec ${fd}>&-" 2>/dev/null || true ;;
+        *) exec {fd}>&- 2>/dev/null || true ;;
       esac
     done
     exec "$@"
