@@ -1,5 +1,9 @@
 import Foundation
 
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 public struct SemVer: Comparable, Equatable, Sendable, CustomStringConvertible {
     public let major: Int
     public let minor: Int

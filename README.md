@@ -6,249 +6,222 @@
 
 **Keep your AI coding session ready when a usage window is available.**
 
-A tiny native macOS menu bar app that sends a small readiness prompt to Claude and Codex
-when a local quota-window signal says a reset candidate is due and your Mac appears active.
+QuotaWake is a local-first CLI and background daemon for reset-aware Claude Code and
+Codex session readiness. The native macOS menu bar app is an optional interface.
 
 <br>
 
-[![Platform](https://img.shields.io/badge/macOS-13%2B-1A1A1A?logo=apple&logoColor=white)](#requirements)
-[![Swift](https://img.shields.io/badge/Swift-5.9-F05138?logo=swift&logoColor=white)](https://swift.org)
+[![Platform](https://img.shields.io/badge/macOS%20%7C%20Linux-Windows%20preview-1A1A1A)](#platform-status)
+[![Swift](https://img.shields.io/badge/Swift-5.9%2B-F05138?logo=swift&logoColor=white)](https://swift.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-E8602C.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/jeongjin0/quotawake?color=F0962B&label=release)](https://github.com/jeongjin0/quotawake/releases)
-[![Downloads](https://img.shields.io/github/downloads/jeongjin0/quotawake/total?color=1A1A1A)](https://github.com/jeongjin0/quotawake/releases)
 
-[**Download**](https://github.com/jeongjin0/quotawake/releases/latest) ·
-[How it works](#-how-it-works) ·
-[Build from source](#-build-from-source) ·
-[Privacy](#-privacy)
+[Quick start](#quick-start) · [Commands](#commands) · [How it works](#how-it-works) · [macOS app](#optional-macos-menu-bar-app)
 
 </div>
 
 ---
 
+> **Release status (2026-07-31): developer preview.** The macOS arm64 CLI is
+> locally verified from source, but the downloadable archive is not yet a
+> signed/notarized stable release. Native CI now passes on macOS and Linux, and
+> the Windows build preview passes, but packaging, clean-machine runtime, and
+> background-service lifecycle gates remain. See
+> [Release readiness](docs/RELEASE-READINESS.md) before publishing binaries.
+
 ## What is QuotaWake?
 
-**Claude Code** and **Codex** meter usage in rolling windows — for example, Claude's
-5-hour window opens the moment you send your first prompt. Hit the limit mid-session and
-the CLI tells you the window resets in an hour or two… usually while you're away from
-the desk, and the reset quietly passes unused.
+QuotaWake observes local quota-window signals from the official Claude Code and Codex
+CLIs. When a reset candidate is due, activity and cooldown checks allow it, and the
+per-user daemon is running, QuotaWake sends a small readiness prompt (`hi` by default)
+and records the result locally.
 
-**QuotaWake** watches those local reset signals. When a reset candidate comes due and your
-Mac appears actively in use, it sends a small readiness prompt (`hi` by default) through
-your already-installed CLIs — so a fresh usage window is already open and logged by the
-time you sit back down, instead of starting on your first real prompt of the afternoon.
+QuotaWake is about **usage-window scheduling and session readiness**, not bypassing
+limits. It does not call provider HTTP APIs, import browser sessions, or store provider
+tokens.
 
-> QuotaWake is about **usage-window scheduling and session readiness**, not bypassing limits.
-> It uses the official CLIs you already have installed and is transparent about every run.
+## Quick start
 
----
-
-## ✨ Features
-
-- 🌙 **Lives in the menu bar** — a lightweight background utility, no Dock clutter.
-- 🤖 **Claude + Codex** — both enabled by default, each toggleable independently.
-- 🪟 **Reset-aware readiness** — watches local quota-window signals ("resets 2pm") and
-  sends when the reset comes due, not on a blind timer.
-- 🖱 **Active-only gate** — skips background sends while the Mac appears idle or in suppressed power states.
-- 🚀 **Launch at login** — background scheduling via `SMAppService`.
-- ✍️ **Editable prompt** — defaults to `hi`; change it in Settings.
-- ▶️ **Send readiness now** — run a manual readiness prompt when you choose.
-- 📜 **Local logs (30 days)** — every run's time, tool, duration, exit code, and status.
-- 🔒 **Local-first** — no telemetry, no provider-token storage, no source upload.
-
----
-
-## 📦 Install
-
-1. Download the latest signed & notarized **`QuotaWake.dmg`** from the
-   [**Releases**](https://github.com/jeongjin0/quotawake/releases/latest) page.
-2. Open the DMG and drag **QuotaWake.app** into **Applications**.
-3. Launch it — the first-run setup detects your CLIs and keeps readiness checks local.
-
-> Only signed & notarized `.dmg` builds are published as downloads. macOS Gatekeeper
-> validates the app on first launch.
-
-### Requirements
-
-| | |
-|---|---|
-| **OS** | macOS 13 (Ventura) or later |
-| **Tools** | [`claude`](https://docs.anthropic.com/en/docs/claude-code) and/or [`codex`](https://github.com/openai/codex) CLI installed |
-| **Account** | An active Claude and/or Codex login the CLI can use |
-
----
-
-## 🌗 How it works
-
-### A typical afternoon
-
-```
-  window #1 open   waiting for reset   window #2
- ●━━━━━━━━━━━━━━━●╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌●━━━━━━━━━━━●━━▶
-09:00          11:37               14:00       14:40
- │               │                   │           │
- │               │                   │           └─ you're back —
- │               │                   │              window open + logged
- │               │                   └─ reset lands · Mac still active
- │               │                      QuotaWake sends claude --print "hi"
- │               └─ 5h limit hit · CLI says "resets 2pm"
- │                  QuotaWake records the local reset signal
- └─ first prompt of the day opens the 5-hour window
-```
-
-Without QuotaWake, that 14:00 reset passes silently and the next window only opens on
-your first real prompt of the afternoon. With it, session readiness is aligned to the
-reset — not to whenever you happen to return.
-
-### The pipeline
-
-Every automatic send goes through the same four stages:
-
-```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   OBSERVE    │────▶│    DECIDE    │────▶│     SEND     │────▶│     LOG      │
-│ local quota  │     │ reset-aware  │     │ official CLI │     │ local record │
-│   signals    │     │  readiness   │     │    as you    │     │  + popover   │
-└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
-Codex app-server /   due reset candidate  claude --print "hi"  time · tool · exit
-Claude usage probe / + Mac appears active / codex exec "hi"    code · duration ·
-CLI reset message    + cooldown /         bounded timeout,     source · confidence
-("resets 2pm")       idempotency guards   never as root        — popover + JSONL
-```
-
-QuotaWake first looks for local quota-window signals. The source hierarchy is:
-
-1. **Observed local quota** from a local provider CLI surface, such as Codex
-   `app-server` rate-limit data when available.
-2. **Exact observed reset** parsed from bounded, sanitized CLI output such as a reset
-   timestamp or relative reset message.
-3. **Estimated 5-hour candidate** from the last successful readiness send when explicit
-   local quota signals are unavailable and estimation is enabled.
-4. **Unknown quota state**, which does not trigger automatic readiness sends in strict mode.
-
-When a reset candidate is due and the active-only gate passes, QuotaWake invokes the
-**official CLI you already have installed** (`claude`, `codex`) in a QuotaWake-owned
-working directory (Codex additionally runs in its read-only sandbox mode), with a bounded
-timeout and an overlap guard so a hung run can't block the next
-one. It records the actual time, tool, command path, exit code, duration, decision source,
-confidence, and a short sanitized status in the menu bar popover and logs.
-
-QuotaWake does not call Claude, Codex, Anthropic, or OpenAI provider HTTP APIs directly.
-Claude `ANTHROPIC_API_KEY`/gateway/cloud billing environment can route Claude Code through
-API-billed usage, so QuotaWake blocks or scrubs those keys by default for Claude readiness
-prompts.
-
-QuotaWake reports local confidence states such as **observed local quota**, **exact
-observed reset**, **estimated 5-hour candidate**, **unknown**, or **blocked**. It does not
-claim provider-side reset verification unless an explicit local CLI/provider signal was
-observed.
-
----
-
-## 🛠 Build from source
-
-QuotaWake is a Swift Package (`QuotaWakeCore` library + `QuotaWake` executable).
+QuotaWake currently builds from source while cross-platform release archives are being
+validated:
 
 ```bash
 git clone https://github.com/jeongjin0/quotawake.git
 cd quotawake
+swift build -c release --product quotawake
 
-# build & test the core
-swift build
-swift test
+# Install into a durable user-owned path before registering the service.
+install -d "$HOME/.local/bin"
+install -m 0755 .build/release/quotawake "$HOME/.local/bin/quotawake"
+export PATH="$HOME/.local/bin:$PATH"
 
-# package the signed .app / .dmg
-./Scripts/package_app.sh
-./Scripts/create_dmg.sh
+quotawake setup
+quotawake doctor
+quotawake service install
 ```
 
-| Doc | Purpose |
-|---|---|
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Code structure, runtime flow, module map |
-| [`DESIGN.md`](DESIGN.md) | App shape, menu bar / Settings UX, first-run flow |
-| [`DEVELOPMENT.md`](DEVELOPMENT.md) | Build, QA, troubleshooting, version-bump commands |
-| [`RELEASE.md`](RELEASE.md) | Signing, notarization, and release execution |
-| [`docs/MVP-SPEC.md`](docs/MVP-SPEC.md) | Full product specification & scope |
-| [`version.env`](version.env) | Single SemVer source of truth |
+The `setup` command detects installed `claude` and `codex` commands. At least one must
+already be installed and logged in. `service install` stores the CLI's absolute path;
+do not register a binary inside `.build`, Downloads, or a temporary extraction folder.
 
----
+## Commands
 
-## ⚙️ Configuration
+| Command | Purpose |
+| --- | --- |
+| `quotawake setup` | Detect providers and create local configuration |
+| `quotawake doctor` | Check setup and provider CLI paths; service/activity diagnostics are still pending |
+| `quotawake status [--json]` | Show provider and quota-window state |
+| `quotawake observe [claude\|codex]` | Read local quota signals without sending a prompt |
+| `quotawake send [claude\|codex]` | Send a manual readiness prompt now |
+| `quotawake daemon` | Run the scheduler in the foreground |
+| `quotawake service install` | Install and start the per-user background daemon |
+| `quotawake service status` | Show background daemon status |
+| `quotawake service stop` | Stop the background daemon |
+| `quotawake service uninstall` | Remove the background daemon |
+| `quotawake config get [--json]` | Print local configuration |
+| `quotawake config set <key> <value>` | Change one configuration value |
+| `quotawake logs [--limit N] [--json]` | Show recent local activity |
 
-Everything lives in the **Settings** window (menu bar → *Settings…*):
+Run `quotawake --help` or `quotawake help <command>` for the complete command help.
+Machine-oriented commands support JSON output, stable provider/status values, and normal
+process exit codes so coding agents can install and operate QuotaWake without scraping a
+GUI.
 
-| Section | What you control |
-|---|---|
-| **General** | Version · Launch at Login · Background readiness (pause/resume) · Send readiness now · Check for Updates |
-| **Providers** | Claude / Codex checkboxes · CLI path detection · manual path override · test |
-| **Window Readiness** | Active-only gate · idle threshold · reset estimation · cooldown · manual send control |
-| **Prompt** | The readiness prompt (default `hi`) |
-| **Logs** | Recent 30-day run history with decision source, confidence, and per-run status |
+## How it works
 
-GUI apps don't inherit your interactive shell `PATH`, so QuotaWake auto-detects CLIs in
-`/opt/homebrew/bin`, `/usr/local/bin`, and other common locations — with a manual override
-if detection fails.
+```text
+observe local quota signal
+          │
+          ▼
+reset-aware decision ── candidate due + activity + idempotency + cooldown
+          │
+          ▼
+claude --print "hi" / codex exec "hi"
+          │
+          ▼
+sanitized local state + 30-day JSONL logs
+```
 
----
+The source hierarchy is:
 
-## 🔒 Privacy
+1. Observed local quota from an installed provider CLI surface.
+2. An exact reset parsed from bounded, sanitized CLI output.
+3. An optional estimated five-hour candidate from the last successful send.
+4. Unknown state, which does not send automatically in strict mode.
 
-QuotaWake is **local-first** by design:
+Provider processes run as the logged-in user with a bounded timeout and an overlap guard.
+Claude/Codex API-billing environment variables are scrubbed before child processes run.
+The default activity policy fails closed when the OS cannot report whether the session is
+active.
 
-- ✅ Logs stay on your machine (30-day default retention).
-- ✅ No telemetry, no analytics.
-- ✅ No provider tokens stored.
-- ✅ No source code uploaded.
-- ✅ No direct provider HTTP requests — it only invokes installed official local CLIs.
-- ✅ No provider dashboard scraping, cookie import, OAuth-token extraction, or WebView auth import.
-- ✅ Claude API-billing environment such as `ANTHROPIC_API_KEY` is blocked or scrubbed by
-  default for readiness prompts.
+## Platform status
 
-The only network activity is an optional **Check for Updates** that reads public GitHub
-release metadata.
+| Platform | CLI evidence | Background service | Activity adapter | Release status |
+| --- | --- | --- | --- | --- |
+| macOS 13+ arm64 | Built and tested locally | `launchd` implemented; native lifecycle gate pending | CoreGraphics + power-state checks | Source/developer preview |
+| macOS 13+ x86_64 | Not built in this review | `launchd` implementation shared | Not verified on Intel | Unverified |
+| Linux | Swift 6.3.3 CI build, 166 tests, and CLI smoke pass | `systemd --user` preview | `systemd-logind` session handling needs VM QA | Source/CI preview |
+| Windows 10+ | Swift 6.3.3 native build and CLI smoke pass | Task Scheduler preview | Automatic sends fail closed pending Win32 adapter | Build preview |
 
-### Data locations & uninstall
+The [cross-platform CI run](https://github.com/jeongjin0/quotawake/actions/runs/30566908704)
+passed on macOS 15, Ubuntu 24.04, and Windows. Windows remains a non-required build
+preview. Automatic sends stay fail-closed until the native idle adapter and process-tree
+termination pass native Windows QA; `status`, `doctor`, `observe`, and `send` are the
+initial portability surface. Linux currently requires Bash for safe provider-process
+launching in addition to the Swift runtime requirements of the packaged binary.
 
-All app data lives under `~/Library/Application Support/QuotaWake/`:
-`settings.json`, `Logs/` (daily JSONL run logs), `QuotaWindows/` (observed
-quota state), and `Run/` (the working directory readiness prompts run in).
+Current ship decision: a clearly labeled macOS arm64 developer preview is
+reasonable for technical testers. A stable public CLI archive, Linux binary,
+Windows binary, or combined Mac app + CLI-daemon release is not yet approved.
 
-To uninstall completely: quit QuotaWake, delete `/Applications/QuotaWake.app`,
-delete `~/Library/Application Support/QuotaWake/`, and remove the login item in
-**System Settings → General → Login Items** if it remains listed.
+## Configuration and data
 
----
+Default data roots:
 
-## 🗺 Roadmap
+| Platform | Location |
+| --- | --- |
+| macOS | `~/Library/Application Support/QuotaWake/` |
+| Linux | `$XDG_STATE_HOME/quotawake/` or `~/.local/state/quotawake/` |
+| Windows | `%LOCALAPPDATA%\QuotaWake\` |
 
-Currently **out of scope** (may come later):
+Set `QUOTAWAKE_HOME` to use an explicit root. The directory contains `settings.json`,
+`Logs/`, `QuotaWindows/`, `Run/`, and the daemon PID file.
 
-- Per-account schedules
-- Provider-side reset / window verification
-- Usage-monitoring dashboards
-- Custom command providers
-- Remote / GitHub Actions scheduling
-- Automatic update download & install
-- Mac App Store distribution
+Useful settings include:
 
----
+```bash
+quotawake config set prompt hi
+quotawake config set readiness.paused true
+quotawake config set readiness.active-only true
+quotawake config set readiness.idle-seconds 300
+quotawake config set background.enabled true
+```
 
-## 🤝 Contributing
+## Optional macOS menu bar app
 
-Issues and PRs are welcome. Please keep the framing consistent with the project's positioning:
-**usage-window scheduling and session readiness**, never limit evasion. For larger changes,
-open an issue first to discuss direction. See [`DESIGN.md`](DESIGN.md) for app shape and UX
-principles, and [`DEVELOPMENT.md`](DEVELOPMENT.md) for the build/QA workflow.
+The SwiftUI/AppKit menu bar app remains available for people who prefer a glanceable
+status surface and native Settings window. It is not required for the CLI, local state,
+manual observation, or daemon architecture.
 
----
+Build and package it on macOS:
 
-## 📄 License
+```bash
+swift build --product QuotaWakeMac
+./Scripts/package_app.sh debug
+```
+
+The application bundle is still named `QuotaWake.app`; `QuotaWakeMac` is only the internal
+SwiftPM product name used to avoid a case-insensitive filesystem collision with the
+lowercase `quotawake` CLI.
+
+## Build and test
+
+```bash
+swift build --product quotawake
+swift test
+
+# macOS/Linux CLI preview archive
+./Scripts/package_cli.sh release
+
+# macOS app package
+./Scripts/package_app.sh debug
+```
+
+Windows packaging uses `Scripts/package_cli.ps1`. CI builds and tests macOS and Linux as
+required jobs, and keeps the Windows build visible as a portability preview until it is
+promoted to a required gate.
+
+| Document | Purpose |
+| --- | --- |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Targets, runtime flow, and platform seams |
+| [`docs/MVP-SPEC.md`](docs/MVP-SPEC.md) | Product contract and supported scope |
+| [`docs/RELEASE-READINESS.md`](docs/RELEASE-READINESS.md) | Current confidence, ship decision, evidence, and risk register |
+| [`DEVELOPMENT.md`](DEVELOPMENT.md) | Build, QA, and troubleshooting |
+| [`RELEASE.md`](RELEASE.md) | CLI archives and optional macOS app release gates |
+| [`DESIGN.md`](DESIGN.md) | Optional macOS interface design system |
+
+## Privacy and safety
+
+- Logs and quota state stay on the local machine.
+- No telemetry or analytics.
+- No direct provider HTTP requests.
+- No provider-token, cookie, OAuth-session, or browser-session storage.
+- No source upload.
+- Provider CLIs never run as root.
+- API-billing and gateway environment variables are scrubbed before readiness calls.
+- Automatic sends remain disabled when the active-only gate cannot be evaluated.
+
+## Roadmap
+
+- Promote Linux service and activity support after native QA.
+- Add the Windows Win32 idle adapter and native process-tree termination.
+- Publish signed/checksummed CLI release archives.
+- Add Homebrew and Windows package-manager installation.
+- Make the macOS app a thin client of the CLI-owned daemon and JSON state surface.
+
+Per-account schedules, provider dashboard scraping, direct provider APIs, and quota
+bypass behavior remain out of scope.
+
+## License
 
 [MIT](LICENSE) © 2026 Jeongjin Shin
-
-<div align="center">
-<br>
-<img alt="" src=".github/assets/quotawake-badge.png" width="38">
-<br><br>
-<sub><b>QuotaWake</b> — reset-aware session readiness before you sit down.</sub>
-</div>

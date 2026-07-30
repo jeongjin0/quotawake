@@ -18,5 +18,8 @@ final class QuotaSourceLicenseTests: XCTestCase {
         XCTAssertTrue(notices.contains("Peter Steinberger"))
         XCTAssertTrue(notices.contains("ProviderIcon-claude.svg"))
         XCTAssertTrue(notices.contains("ProviderIcon-codex.svg"))
+        XCTAssertTrue(notices.contains("swift-argument-parser"))
+        XCTAssertTrue(notices.contains("Apache License 2.0"))
+        XCTAssertTrue(notices.contains("swift-argument-parser-LICENSE.txt"))
     }
 }

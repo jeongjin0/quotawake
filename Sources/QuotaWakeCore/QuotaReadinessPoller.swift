@@ -74,15 +74,17 @@ public final class QuotaReadinessPoller {
         self.failureRetryIntervalSeconds = failureRetryIntervalSeconds
     }
 
-    public func sendNow() throws {
+    @discardableResult
+    public func sendNow(provider: ToolKind? = nil) throws -> [RunLogEntry] {
         beginExclusiveWorkBlocking()
         defer { endExclusiveWork() }
 
         let settings = try settingsStore.load()
         let commands = commandsProvider()
         let scheduledAt = now()
+        var entries: [RunLogEntry] = []
 
-        for command in commands where settings.tools[command.tool].enabled {
+        for command in commands where settings.tools[command.tool].enabled && (provider == nil || provider == command.tool) {
             let eventId = "manual-send-now-\(command.tool.rawValue)"
             let entry = try runner.run(ToolRunRequest(
                 command: command,
@@ -95,7 +97,19 @@ public final class QuotaReadinessPoller {
             ))
             try appendRunEntryIfMissing(entry)
             try updateQuotaState(from: entry)
+            entries.append(entry)
+            if entry.status == .sent {
+                try? observeQuotaWindow(
+                    command: command,
+                    prompt: settings.prompt,
+                    scheduledAt: scheduledAt,
+                    reason: .postSendVerification,
+                    previousToolLogs: [],
+                    dedupeOnOutcomeOnly: true
+                )
+            }
         }
+        return entries
     }
 
     public func tick() throws {
@@ -222,7 +236,7 @@ public final class QuotaReadinessPoller {
     // mid-flight, so the caller can report honestly instead of claiming a
     // fresh observation happened.
     @discardableResult
-    public func observeNow() throws -> Bool {
+    public func observeNow(provider: ToolKind? = nil) throws -> Bool {
         // Manual Reload runs on its own queue; skip instead of racing a tick
         // or send that is mid-flight — the caller's refresh still shows the
         // latest on-disk state.
@@ -235,7 +249,7 @@ public final class QuotaReadinessPoller {
         let commands = commandsProvider()
         let scheduledAt = now()
 
-        for command in commands where settings.tools[command.tool].enabled {
+        for command in commands where settings.tools[command.tool].enabled && (provider == nil || provider == command.tool) {
             try observeQuotaWindow(
                 command: command,
                 prompt: settings.prompt,

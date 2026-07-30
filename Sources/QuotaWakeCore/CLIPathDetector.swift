@@ -1,5 +1,10 @@
-import Darwin
 import Foundation
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 public enum CLIResolutionStatus: String, Codable, Equatable, Sendable {
     case found
@@ -67,6 +72,9 @@ private final class CodexProbeCache {
 }
 
 public struct CLIPathDetector {
+    #if os(Windows)
+    public static let defaultSystemBinDirectories: [String] = []
+    #else
     public static let defaultSystemBinDirectories = [
         "/opt/homebrew/bin",
         "/usr/local/bin",
@@ -75,23 +83,31 @@ public struct CLIPathDetector {
         "/usr/sbin",
         "/sbin"
     ]
+    #endif
 
     private let fileManager: FileManager
     private let homeDirectory: URL
     private let commonBinDirectories: [URL]
+    private let environment: [String: String]
+    private let includesEnvironmentPath: Bool
     private let codexHealthProbeTimeoutSeconds: TimeInterval
     private let codexHealthProbeCacheTTLSeconds: TimeInterval
     private let probeCache = CodexProbeCache()
 
     public init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
-        commonBinDirectories: [URL] = Self.defaultSystemBinDirectories.map { URL(fileURLWithPath: $0, isDirectory: true) },
+        commonBinDirectories: [URL]? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default,
         codexHealthProbeTimeoutSeconds: TimeInterval = 2,
         codexHealthProbeCacheTTLSeconds: TimeInterval = 300
     ) {
         self.homeDirectory = homeDirectory
-        self.commonBinDirectories = commonBinDirectories
+        self.environment = environment
+        self.includesEnvironmentPath = commonBinDirectories == nil
+        self.commonBinDirectories = commonBinDirectories ?? Self.defaultSystemBinDirectories.map {
+            URL(fileURLWithPath: $0, isDirectory: true)
+        }
         self.fileManager = fileManager
         self.codexHealthProbeTimeoutSeconds = codexHealthProbeTimeoutSeconds
         self.codexHealthProbeCacheTTLSeconds = codexHealthProbeCacheTTLSeconds
@@ -110,18 +126,20 @@ public struct CLIPathDetector {
 
         var firstBrokenExecutable: URL?
         for directory in searchDirectories() {
-            let candidate = directory.appendingPathComponent(commandName, isDirectory: false)
-            guard isExecutableFile(candidate) else {
-                continue
-            }
-            let result = validateExecutable(tool: tool, executableURL: candidate)
-            if result.status == .brokenExecutable {
-                if firstBrokenExecutable == nil {
-                    firstBrokenExecutable = candidate
+            for candidateName in executableCandidateNames(commandName) {
+                let candidate = directory.appendingPathComponent(candidateName, isDirectory: false)
+                guard isExecutableFile(candidate) else {
+                    continue
                 }
-                continue
+                let result = validateExecutable(tool: tool, executableURL: candidate)
+                if result.status == .brokenExecutable {
+                    if firstBrokenExecutable == nil {
+                        firstBrokenExecutable = candidate
+                    }
+                    continue
+                }
+                return result
             }
-            return result
         }
 
         if let firstBrokenExecutable {
@@ -132,7 +150,7 @@ public struct CLIPathDetector {
     }
 
     public func searchDirectories() -> [URL] {
-        uniqueDirectories(commonBinDirectories + nodePackageDirectories())
+        uniqueDirectories(commonBinDirectories + nodePackageDirectories() + environmentPathDirectories())
     }
 
     public func nodePackageDirectories() -> [URL] {
@@ -149,7 +167,8 @@ public struct CLIPathDetector {
             homeDirectory.appendingPathComponent(".local/bin", isDirectory: true),
             homeDirectory.appendingPathComponent(".npm-global/bin", isDirectory: true),
             homeDirectory.appendingPathComponent(".bun/bin", isDirectory: true),
-            homeDirectory.appendingPathComponent(".yarn/bin", isDirectory: true)
+            homeDirectory.appendingPathComponent(".yarn/bin", isDirectory: true),
+            homeDirectory.appendingPathComponent("AppData/Roaming/npm", isDirectory: true)
         ]
 
         return uniqueDirectories(nvmDirectories + nodeToolDirectories)
@@ -186,10 +205,11 @@ public struct CLIPathDetector {
         let process = Process()
         process.executableURL = executableURL
         process.arguments = ["--version"]
-        process.environment = [
-            "HOME": homeDirectory.path,
-            "PATH": childPATH(for: executableURL)
-        ]
+        var childEnvironment = environment
+        childEnvironment["HOME"] = homeDirectory.path
+        childEnvironment["USERPROFILE"] = homeDirectory.path
+        childEnvironment["PATH"] = childPATH(for: executableURL)
+        process.environment = childEnvironment
 
         let output = Pipe()
         process.standardOutput = output
@@ -216,6 +236,11 @@ public struct CLIPathDetector {
     }
 
     private func terminateTimedOutProbe(_ process: Process, semaphore: DispatchSemaphore) {
+        #if os(Windows)
+        guard process.isRunning else { return }
+        process.terminate()
+        _ = semaphore.wait(timeout: .now() + .milliseconds(500))
+        #else
         let processID = process.processIdentifier
         let processGroupID = getpgid(processID)
         let canSignalProcessGroup = processGroupID == processID
@@ -239,12 +264,15 @@ public struct CLIPathDetector {
         if !parentExited {
             _ = semaphore.wait(timeout: .now() + .milliseconds(500))
         }
+        #endif
     }
 
+    #if !os(Windows)
     private func killProcessGroup(_ processGroupID: pid_t, signal: Int32) {
         guard processGroupID > 1 else { return }
         kill(-processGroupID, signal)
     }
+    #endif
 
     private func makeResult(
         tool: ToolKind,
@@ -263,9 +291,12 @@ public struct CLIPathDetector {
     private func childPATH(for executableURL: URL?) -> String {
         let detectedDirectory = executableURL?.deletingLastPathComponent()
         let pathDirectories = uniqueDirectories(
-            [detectedDirectory].compactMap { $0 } + nodePackageDirectories() + commonBinDirectories
+            [detectedDirectory].compactMap { $0 }
+                + nodePackageDirectories()
+                + commonBinDirectories
+                + environmentPathDirectories()
         )
-        return pathDirectories.map(\.path).joined(separator: ":")
+        return pathDirectories.map(\.path).joined(separator: pathSeparator)
     }
 
     private func hasNodeRuntime(for executableURL: URL) -> Bool {
@@ -273,7 +304,9 @@ public struct CLIPathDetector {
             [executableURL.deletingLastPathComponent()] + nodePackageDirectories() + commonBinDirectories
         )
         return candidateDirectories.contains { directory in
-            isExecutableFile(directory.appendingPathComponent("node", isDirectory: false))
+            executableCandidateNames("node").contains { name in
+                isExecutableFile(directory.appendingPathComponent(name, isDirectory: false))
+            }
         }
     }
 
@@ -291,7 +324,11 @@ public struct CLIPathDetector {
               !isDirectory.boolValue else {
             return false
         }
+        #if os(Windows)
+        return true
+        #else
         return fileManager.isExecutableFile(atPath: url.path)
+        #endif
     }
 
     private func nvmVersionDirectories(in root: URL) -> [URL] {
@@ -351,6 +388,32 @@ public struct CLIPathDetector {
         }
 
         return result
+    }
+
+    private var pathSeparator: String {
+        #if os(Windows)
+        return ";"
+        #else
+        return ":"
+        #endif
+    }
+
+    private func environmentPathDirectories() -> [URL] {
+        guard includesEnvironmentPath, let path = environment["PATH"] else {
+            return []
+        }
+        return path
+            .split(separator: Character(pathSeparator), omittingEmptySubsequences: true)
+            .map { URL(fileURLWithPath: String($0), isDirectory: true) }
+    }
+
+    private func executableCandidateNames(_ commandName: String) -> [String] {
+        #if os(Windows)
+        if URL(fileURLWithPath: commandName).pathExtension.isEmpty {
+            return [commandName + ".exe", commandName + ".cmd", commandName + ".bat", commandName]
+        }
+        #endif
+        return [commandName]
     }
 }
 

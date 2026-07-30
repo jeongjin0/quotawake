@@ -8,14 +8,21 @@ import Glibc
 
 enum ProcessTreeTerminator {
     static func terminate(_ process: Process) {
+        #if os(Windows)
+        if process.isRunning {
+            process.terminate()
+        }
+        #else
         let rootPID = process.processIdentifier
         let descendants = descendantPIDs(of: rootPID)
         signal([rootPID] + descendants, SIGTERM)
         usleep(100_000)
         let remaining = ([rootPID] + descendants).filter(isAlive)
         signal(remaining, SIGKILL)
+        #endif
     }
 
+    #if !os(Windows)
     private static func signal(_ pids: [Int32], _ signal: Int32) {
         for pid in pids where pid > 0 {
             kill(pid, signal)
@@ -76,4 +83,5 @@ enum ProcessTreeTerminator {
         }
         return parents
     }
+    #endif
 }

@@ -1,5 +1,17 @@
 # Third-Party Notices
 
+## Swift Argument Parser
+
+QuotaWake's CLI uses Apple's `swift-argument-parser`:
+
+https://github.com/apple/swift-argument-parser
+
+Copyright (c) Apple Inc. and the Swift project authors.
+
+`swift-argument-parser` is licensed under the Apache License 2.0. Binary
+distributions of QuotaWake include its complete license text as
+`swift-argument-parser-LICENSE.txt`.
+
 ## CodexBar provider icons
 
 `ProviderIcon-claude.svg` and `ProviderIcon-codex.svg` are copied from

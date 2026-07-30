@@ -6,6 +6,8 @@ import Foundation
 
 #if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
 #endif
 
 public struct CLICommandTemplate: Equatable, Sendable {
@@ -169,14 +171,37 @@ public final class CLIExecutor {
     }
 
     public func run(_ request: CLIExecutionRequest) throws -> CLIExecutionResult {
+        #if os(Linux)
+        // A delayed descendant can observe a pipe teardown after the direct
+        // CLI has exited. Do not let Foundation's parent-side pipe bookkeeping
+        // terminate the long-running QuotaWake daemon with SIGPIPE. The shell
+        // trampoline resets the provider process back to the default below.
+        _ = Self.configureLinuxBrokenPipeHandling
+        #endif
         try fileManager.createDirectory(
             at: request.runDirectory,
             withIntermediateDirectories: true
         )
 
         let process = Process()
+        #if os(Linux)
+        // swift-corelibs-foundation deliberately leaves its private process-
+        // monitor socket open in the launched program. A CLI-created
+        // background child inherits that descriptor, so Process does not
+        // report the direct CLI exit until every descendant exits. Close all
+        // non-standard descriptors in a tiny shell trampoline before exec;
+        // argv remains positional and is never interpolated into shell text.
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [
+            "-c",
+            Self.linuxDescriptorClosingExec,
+            "quotawake-provider",
+            request.executableURL.path
+        ] + request.arguments
+        #else
         process.executableURL = request.executableURL
         process.arguments = request.arguments
+        #endif
         process.currentDirectoryURL = request.runDirectory
 
         let childEnvironment = CLIChildEnvironmentPolicy.build(
@@ -231,6 +256,24 @@ public final class CLIExecutor {
     private func terminate(_ process: Process) {
         ProcessTreeTerminator.terminate(process)
     }
+
+    #if os(Linux)
+    private static let configureLinuxBrokenPipeHandling: Void = {
+        _ = Glibc.signal(SIGPIPE, SIG_IGN)
+    }()
+
+    private static let linuxDescriptorClosingExec = """
+    trap - PIPE
+    for fd_path in /proc/self/fd/*; do
+      fd="${fd_path##*/}"
+      case "$fd" in
+        0|1|2) ;;
+        *) exec {fd}>&- || true ;;
+      esac
+    done
+    exec "$@"
+    """
+    #endif
 
     private static func durationMs(startedAt: Date, endedAt: Date) -> Int {
         max(0, Int((endedAt.timeIntervalSince(startedAt) * 1_000).rounded()))
@@ -485,4 +528,3 @@ public final class ToolRunner {
         }
     }
 }
-
