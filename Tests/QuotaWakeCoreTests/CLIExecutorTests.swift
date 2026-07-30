@@ -181,15 +181,20 @@ final class CLIExecutorTests: XCTestCase {
 
     func testStrayBackgroundGrandchildDoesNotHangOutputDrain() throws {
         let fixture = try makeFixture()
-        // The backgrounded sleep inherits stdout/stderr and keeps the pipes
-        // open long after the direct child exits 0; the final drain must be
-        // deadline-bounded instead of blocking until the stray process dies.
-        let executable = try makeFakeExecutable(
-            name: "claude",
-            in: fixture.binDirectory,
-            captureDirectory: fixture.captureDirectory,
-            body: "sleep 30 &\nprintf 'ok\\n'\nexit 0\n"
+        // A forked child inherits stdout/stderr and keeps the pipes open long
+        // after the direct process exits 0. Use C instead of shell job-control
+        // semantics, which differ between Darwin's and Linux's /bin/sh.
+        let childPIDFile = fixture.captureDirectory.appendingPathComponent("stray-child.pid")
+        let executable = try makeStrayGrandchildExecutable(
+            directory: fixture.binDirectory,
+            childPIDFile: childPIDFile
         )
+        defer {
+            if let rawPID = try? String(contentsOf: childPIDFile, encoding: .utf8),
+               let childPID = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                kill(childPID, SIGKILL)
+            }
+        }
         let runner = ToolRunner(logStore: fixture.logStore)
 
         let startedAt = Date()
@@ -553,6 +558,39 @@ final class CLIExecutorTests: XCTestCase {
         #if canImport(Darwin) || canImport(Glibc)
         XCTAssertEqual(chmod(executable.path, 0o755), 0)
         #endif
+        return executable
+    }
+
+    private func makeStrayGrandchildExecutable(directory: URL, childPIDFile: URL) throws -> URL {
+        let source = directory.appendingPathComponent("stray-grandchild.c")
+        let executable = directory.appendingPathComponent("claude", isDirectory: false)
+        try """
+        #include <stdio.h>
+        #include <stdlib.h>
+        #include <unistd.h>
+
+        int main(void) {
+          pid_t child = fork();
+          if (child < 0) { return 2; }
+          if (child == 0) {
+            sleep(30);
+            _exit(0);
+          }
+          FILE *file = fopen("\(childPIDFile.path)", "w");
+          if (!file) { return 3; }
+          fprintf(file, "%d", child);
+          fclose(file);
+          printf("ok\\n");
+          fflush(stdout);
+          return 0;
+        }
+        """.write(to: source, atomically: true, encoding: .utf8)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/clang")
+        process.arguments = [source.path, "-o", executable.path]
+        try process.run()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
         return executable
     }
 

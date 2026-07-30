@@ -13,6 +13,7 @@ final class BoundedPipeCollector {
 
     private let lock = NSLock()
     private let limitBytes: Int
+    private let reachedEOF = DispatchSemaphore(value: 0)
     private var data = Data()
 
     init(limitBytes: Int) {
@@ -22,7 +23,9 @@ final class BoundedPipeCollector {
     func start() {
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let chunk = handle.availableData
-            guard !chunk.isEmpty else {
+            if chunk.isEmpty {
+                handle.readabilityHandler = nil
+                self?.reachedEOF.signal()
                 return
             }
             self?.append(chunk)
@@ -31,26 +34,14 @@ final class BoundedPipeCollector {
 
     func stop(drainDeadlineSeconds: TimeInterval = 2.0) {
         try? pipe.fileHandleForWriting.close()
-        let reachedEOF = DispatchSemaphore(value: 0)
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let chunk = handle.availableData
-            if chunk.isEmpty {
-                handle.readabilityHandler = nil
-                reachedEOF.signal()
-            } else {
-                self?.append(chunk)
-            }
-        }
         if reachedEOF.wait(timeout: .now() + drainDeadlineSeconds) == .success {
             try? pipe.fileHandleForReading.close()
         } else {
-            // Deadline hit: a stray writer still holds the pipe. Removing the
-            // handler cancels its dispatch source asynchronously, so an
-            // in-flight invocation may still touch the handle — closing the
-            // fd here would make that availableData call raise an uncatchable
-            // NSFileHandleOperationException. Leave the close to FileHandle's
-            // deinit once the collector is released.
-            pipe.fileHandleForReading.readabilityHandler = nil
+            // Deadline hit: a stray writer still holds the pipe. Do not
+            // replace or clear the readability handler from this thread:
+            // swift-corelibs-foundation can block that assignment until the
+            // inherited writer closes. The handler clears itself on eventual
+            // EOF and only weakly retains this collector.
         }
     }
 
