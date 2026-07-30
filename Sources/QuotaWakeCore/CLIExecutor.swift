@@ -6,6 +6,8 @@ import Foundation
 
 #if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
 #endif
 
 public struct CLICommandTemplate: Equatable, Sendable {
@@ -169,6 +171,13 @@ public final class CLIExecutor {
     }
 
     public func run(_ request: CLIExecutionRequest) throws -> CLIExecutionResult {
+        #if os(Linux)
+        // A delayed descendant can observe a pipe teardown after the direct
+        // CLI has exited. Do not let Foundation's parent-side pipe bookkeeping
+        // terminate the long-running QuotaWake daemon with SIGPIPE. The shell
+        // trampoline resets the provider process back to the default below.
+        _ = Self.configureLinuxBrokenPipeHandling
+        #endif
         try fileManager.createDirectory(
             at: request.runDirectory,
             withIntermediateDirectories: true
@@ -249,12 +258,17 @@ public final class CLIExecutor {
     }
 
     #if os(Linux)
+    private static let configureLinuxBrokenPipeHandling: Void = {
+        _ = Glibc.signal(SIGPIPE, SIG_IGN)
+    }()
+
     private static let linuxDescriptorClosingExec = """
+    trap - PIPE
     for fd_path in /proc/self/fd/*; do
       fd="${fd_path##*/}"
       case "$fd" in
         0|1|2) ;;
-        *) exec {fd}>&- 2>/dev/null || true ;;
+        *) exec {fd}>&- || true ;;
       esac
     done
     exec "$@"
