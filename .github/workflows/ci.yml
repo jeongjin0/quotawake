@@ -1,9 +1,14 @@
 name: Cross-platform Swift
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
+
+concurrency:
+  group: cross-platform-swift-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
