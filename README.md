@@ -18,6 +18,16 @@ Codex session readiness. The native macOS menu bar app is an optional interface.
 
 [Quick start](#quick-start) · [Commands](#commands) · [How it works](#how-it-works) · [macOS app](#optional-macos-menu-bar-app)
 
+<br>
+
+<a href="https://startupbase.io/products/quotawake?utm_source=startupbase&utm_medium=badge&utm_campaign=award-daily-gold-410" target="_blank" rel="noopener noreferrer">
+  <img src="https://statics.startupbase.io/site/badges/daily-winner-gold.svg" alt="StartupBase Daily Winner (Gold)" height="55" style="height:55px;width:auto;" />
+</a>
+&nbsp;&nbsp;
+<a href="https://fazier.com/launches/quotawake" target="_blank" rel="noopener">
+  <img src="https://fazier.com/api/v1/public/badges/embed_image.svg?launch_id=10349&badge_type=daily&theme=neutral" alt="Fazier daily launch badge" height="55" />
+</a>
+
 </div>
 
 ---
